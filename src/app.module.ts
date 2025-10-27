@@ -21,14 +21,13 @@ import { PareoService } from './services/pareo.service';
 import { PareoExcluidoController } from './controllers/pareo-excluido.controller';
 import { PareoExcluidoService } from './services/pareo-excluido.service';
 import { PareoExcluido } from './entities/pareo-excluido.entity';
+import { getDatabaseConfig } from './config/database.config';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: 'database.sqlite',
+      ...getDatabaseConfig(),
       entities: [Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido],
-      synchronize: true, // Apenas para desenvolvimento
     }),
     TypeOrmModule.forFeature([Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido]),
   ],
