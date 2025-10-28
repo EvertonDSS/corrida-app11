@@ -24,6 +24,59 @@ export class PdfService {
     private pareoExcluidoRepository: Repository<PareoExcluido>,
   ) {}
 
+  async obterDadosEstruturados(campeonatoId: number, apostadorId: number): Promise<any> {
+    // Busca o apostador
+    const apostador = await this.apostadorRepository.findOne({
+      where: { id: apostadorId },
+    });
+
+    if (!apostador) {
+      throw new NotFoundException('Apostador não encontrado');
+    }
+
+    // Busca apostas
+    const apostas = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalos')
+      .where('aposta.apostadorId = :apostadorId', { apostadorId })
+      .andWhere('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('aposta.valorPremio > 0')
+      .andWhere('aposta.valor > 0')
+      .orderBy('aposta.updatedAt', 'DESC')
+      .addOrderBy('pareo.numero', 'ASC')
+      .getMany();
+
+    const pareosExcluidos = await this.buscarPareosExcluidos(campeonatoId, apostas);
+    const apostasPorRodada = this.agruparApostasPorRodada(apostas, pareosExcluidos);
+
+    const totalApostado = apostas.reduce((sum, aposta) => sum + Number(aposta.valor), 0);
+    const totalPremio = apostas.reduce((sum, aposta) => sum + Number(aposta.valorPremio), 0);
+
+    // Converte Map para Array para JSON
+    const apostasPorRodadaArray = Array.from(apostasPorRodada.values());
+
+    return {
+      apostador: {
+        id: apostador.id,
+        nome: apostador.nome,
+        createdAt: apostador.createdAt,
+        updatedAt: apostador.updatedAt
+      },
+      apostasPorRodada: apostasPorRodadaArray,
+      totalApostado: Number(totalApostado.toFixed(2)),
+      totalPremio: Number(totalPremio.toFixed(2)),
+      totalApostas: apostas.length,
+      totalRodadas: apostasPorRodadaArray.length,
+      pareosExcluidos: Array.from(pareosExcluidos.entries()).map(([chave, valor]) => ({
+        chaveRodada: chave,
+        valorExcluido: valor
+      }))
+    };
+  }
+
   async gerarRelatorioApostador(campeonatoId: number, apostadorId: number): Promise<Buffer> {
     // Tenta usar PDFKit primeiro (funciona no Render)
     try {

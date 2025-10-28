@@ -21,6 +21,7 @@ async function bootstrap() {
     .addTag('pareos', 'Operações relacionadas a pareos e cavalos')
     .addTag('pareos-excluidos', 'Operações relacionadas a pareos excluídos')
     .addTag('apostas', 'Operações relacionadas a apostas')
+    .addTag('apostadores', 'Operações relacionadas a apostadores')
     .addTag('pdf', 'Geração de relatórios em PDF')
     .build();
   const documentFactory = () => SwaggerModule.createDocument(app, config);
