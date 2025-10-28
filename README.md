@@ -1,13 +1,20 @@
 # Corrida App
 
-Uma aplicação NestJS com SQLite para gerenciamento de campeonatos.
+Uma aplicação NestJS com PostgreSQL/SQLite para gerenciamento de campeonatos.
 
 ## 🚀 Tecnologias
 
 - **NestJS** - Framework Node.js
 - **TypeORM** - ORM para TypeScript
-- **SQLite** - Banco de dados
+- **PostgreSQL/SQLite** - Banco de dados (alternável)
+- **Puppeteer** - Geração de PDFs
 - **Swagger** - Documentação da API
+
+## 📦 Deploy no Render.com
+
+✅ **Aplicação pronta para deploy no Render.com!**
+
+Consulte o arquivo `DEPLOY-RENDER.md` para instruções detalhadas.
 
 ## 📦 Instalação
 

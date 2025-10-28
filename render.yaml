@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: corrida-app
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "false"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux/chrome
+      - key: DISPLAY
+        value: ":99"
+      - key: PORT
+        fromService:
+          type: web
+          name: corrida-app
+          property: port
+    healthCheckPath: /api
