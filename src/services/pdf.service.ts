@@ -58,6 +58,9 @@ export class PdfService {
     // Converte Map para Array para JSON
     const apostasPorRodadaArray = Array.from(apostasPorRodada.values());
 
+    // Busca pareos excluídos com mais detalhes
+    const pareosExcluidosDetalhados = await this.buscarPareosExcluidosDetalhados(campeonatoId, apostas);
+
     return {
       apostador: {
         id: apostador.id,
@@ -70,10 +73,7 @@ export class PdfService {
       totalPremio: Number(totalPremio.toFixed(2)),
       totalApostas: apostas.length,
       totalRodadas: apostasPorRodadaArray.length,
-      pareosExcluidos: Array.from(pareosExcluidos.entries()).map(([chave, valor]) => ({
-        chaveRodada: chave,
-        valorExcluido: valor
-      }))
+      pareosExcluidos: pareosExcluidosDetalhados
     };
   }
 
@@ -282,6 +282,69 @@ export class PdfService {
     return Buffer.from(pdf);
   }
 
+  private async buscarPareosExcluidosDetalhados(campeonatoId: number, apostas: Aposta[]): Promise<any[]> {
+    const pareosExcluidosDetalhados: any[] = [];
+    
+    // Busca todos os pareos excluídos do campeonato
+    const excluidos = await this.pareoExcluidoRepository.find({
+      where: { campeonatoId },
+    });
+
+    // Agrupa apostas por rodada específica (nomeRodada + tipoRodadaId)
+    const apostasPorRodada = new Map<string, Aposta[]>();
+    for (const aposta of apostas) {
+      const chaveRodada = `${aposta.nomeRodada}-${aposta.tipoRodadaId}`;
+      if (!apostasPorRodada.has(chaveRodada)) {
+        apostasPorRodada.set(chaveRodada, []);
+      }
+      apostasPorRodada.get(chaveRodada)!.push(aposta);
+    }
+
+    // Para cada rodada específica, verifica se há pareos excluídos
+    for (const [chaveRodada, apostasRodada] of apostasPorRodada) {
+      const primeiraAposta = apostasRodada[0];
+      const tipoRodada = primeiraAposta.tipoRodada;
+      
+      // Busca pareos excluídos deste tipo de rodada
+      const excluidosTipo = excluidos.filter(e => e.tipoRodadaId === primeiraAposta.tipoRodadaId);
+      
+      for (const excluido of excluidosTipo) {
+        // Busca apostas ativas do pareo excluído APENAS desta rodada específica
+        const apostasPareoExcluido = await this.apostaRepository.find({
+          where: {
+            campeonatoId,
+            tipoRodadaId: excluido.tipoRodadaId,
+            nomeRodada: primeiraAposta.nomeRodada, // Filtra pela rodada específica
+            pareo: { numero: excluido.numeroPareo }
+          },
+          relations: ['pareo']
+        });
+        
+        // Calcula o valor excluído (soma dos valores reais das apostas ativas desta rodada)
+        const valorExcluido = apostasPareoExcluido.length > 0 
+          ? apostasPareoExcluido.reduce((sum, a) => sum + Number(a.valor), 0)
+          : 0;
+
+        pareosExcluidosDetalhados.push({
+          chaveRodada: chaveRodada, // Inclui a chave da rodada específica
+          nomeRodada: primeiraAposta.nomeRodada,
+          tipoRodada: {
+            id: tipoRodada?.id || primeiraAposta.tipoRodadaId,
+            nome: tipoRodada?.nome || 'Tipo Desconhecido'
+          },
+          numeroPareo: excluido.numeroPareo,
+          valorExcluido: Number(valorExcluido.toFixed(2)),
+          temApostasAtivas: apostasPareoExcluido.length > 0,
+          quantidadeApostas: apostasPareoExcluido.length,
+          dadosPareo: excluido.dadosPareo,
+          createdAt: excluido.createdAt
+        });
+      }
+    }
+
+    return pareosExcluidosDetalhados;
+  }
+
   private async buscarPareosExcluidos(campeonatoId: number, apostas: Aposta[]): Promise<Map<string, number>> {
     const pareosExcluidos = new Map<string, number>();
     
@@ -290,36 +353,49 @@ export class PdfService {
       where: { campeonatoId },
     });
 
-    // Para cada aposta, verifica se há pareos excluídos do mesmo tipo de rodada
+    // Agrupa apostas por rodada específica (nomeRodada + tipoRodadaId)
+    const apostasPorRodada = new Map<string, Aposta[]>();
     for (const aposta of apostas) {
       const chaveRodada = `${aposta.nomeRodada}-${aposta.tipoRodadaId}`;
-      
-      if (!pareosExcluidos.has(chaveRodada)) {
-        // Busca pareos excluídos do mesmo tipo de rodada
-        const excluidosTipo = excluidos.filter(e => e.tipoRodadaId === aposta.tipoRodadaId);
-        
-        // Calcula o valor total dos pareos excluídos para este tipo
-        let valorExcluidos = 0;
-        for (const excluido of excluidosTipo) {
-          // Busca apostas ativas do pareo excluído para verificar se existem
-          const apostasPareoExcluido = await this.apostaRepository.find({
-            where: {
-              campeonatoId,
-              tipoRodadaId: excluido.tipoRodadaId,
-              pareo: { numero: excluido.numeroPareo }
-            },
-            relations: ['pareo']
-          });
-          
-          // Só adiciona o valor se houver apostas ativas no pareo excluído
-          if (apostasPareoExcluido.length > 0) {
-            const valorPareoExcluido = apostasPareoExcluido.reduce((sum, a) => sum + a.valorOriginal, 0);
-            valorExcluidos += valorPareoExcluido;
-          }
-        }
-        
-        pareosExcluidos.set(chaveRodada, valorExcluidos);
+      if (!apostasPorRodada.has(chaveRodada)) {
+        apostasPorRodada.set(chaveRodada, []);
       }
+      apostasPorRodada.get(chaveRodada)!.push(aposta);
+    }
+
+    // Para cada rodada específica, calcula o valor dos pareos excluídos
+    for (const [chaveRodada, apostasRodada] of apostasPorRodada) {
+      const primeiraAposta = apostasRodada[0];
+      
+      // Busca pareos excluídos do mesmo tipo de rodada
+      const excluidosTipo = excluidos.filter(e => e.tipoRodadaId === primeiraAposta.tipoRodadaId);
+      
+      // Calcula o valor total dos pareos excluídos para esta rodada específica
+      let valorExcluidos = 0;
+      for (const excluido of excluidosTipo) {
+        // Busca apostas ativas do pareo excluído APENAS desta rodada específica
+        const apostasPareoExcluido = await this.apostaRepository.find({
+          where: {
+            campeonatoId,
+            tipoRodadaId: excluido.tipoRodadaId,
+            nomeRodada: primeiraAposta.nomeRodada, // Filtra pela rodada específica
+            pareo: { numero: excluido.numeroPareo }
+          },
+          relations: ['pareo']
+        });
+        
+        // Só adiciona o valor se houver apostas ativas no pareo excluído desta rodada
+        if (apostasPareoExcluido.length > 0) {
+          // Calcula a proporção que este apostador representa no pareo excluído desta rodada
+          const apostasDoApostadorNoPareoExcluido = apostasPareoExcluido.filter(a => a.apostadorId === primeiraAposta.apostadorId);
+          const valorApostadorNoPareoExcluido = apostasDoApostadorNoPareoExcluido.reduce((sum, a) => sum + Number(a.valor), 0);
+          
+          // Adiciona apenas a proporção deste apostador (baseado no valor real apostado)
+          valorExcluidos += valorApostadorNoPareoExcluido;
+        }
+      }
+      
+      pareosExcluidos.set(chaveRodada, valorExcluidos);
     }
 
     return pareosExcluidos;
