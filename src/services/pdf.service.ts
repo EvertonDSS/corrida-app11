@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as puppeteer from 'puppeteer';
+import PDFDocument from 'pdfkit';
 import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
 import { Pareo } from '../entities/pareo.entity';
@@ -24,6 +25,115 @@ export class PdfService {
   ) {}
 
   async gerarRelatorioApostador(campeonatoId: number, apostadorId: number): Promise<Buffer> {
+    // Tenta usar PDFKit primeiro (funciona no Render)
+    try {
+      return await this.gerarPdfComPdfKit(campeonatoId, apostadorId);
+    } catch (error) {
+      console.log('Erro com PDFKit, tentando Puppeteer...', error.message);
+      return await this.gerarPdfComPuppeteer(campeonatoId, apostadorId);
+    }
+  }
+
+  private async gerarPdfComPdfKit(campeonatoId: number, apostadorId: number): Promise<Buffer> {
+    // Busca o apostador
+    const apostador = await this.apostadorRepository.findOne({
+      where: { id: apostadorId },
+    });
+
+    if (!apostador) {
+      throw new NotFoundException('Apostador não encontrado');
+    }
+
+    // Busca apostas
+    const apostas = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalos')
+      .where('aposta.apostadorId = :apostadorId', { apostadorId })
+      .andWhere('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('aposta.valorPremio > 0')
+      .andWhere('aposta.valor > 0')
+      .orderBy('aposta.updatedAt', 'DESC')
+      .addOrderBy('pareo.numero', 'ASC')
+      .getMany();
+
+    const pareosExcluidos = await this.buscarPareosExcluidos(campeonatoId, apostas);
+    const apostasPorRodada = this.agruparApostasPorRodada(apostas, pareosExcluidos);
+
+    const totalApostado = apostas.reduce((sum, aposta) => sum + Number(aposta.valor), 0);
+    const totalPremio = apostas.reduce((sum, aposta) => sum + Number(aposta.valorPremio), 0);
+
+    // Cria o documento PDF
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({ margin: 72 });
+    
+    doc.on('data', (chunk) => chunks.push(chunk));
+    
+    // Header
+    doc.fontSize(18).fillColor('#D4AF37').text('🐎 JOGOS ONLINE', 72, 72, { align: 'center' });
+    doc.fontSize(14).text(apostador.nome, 72, 100, { align: 'center' });
+    doc.fontSize(20).text('RELATÓRIO DE APOSTAS', 72, 130, { align: 'center' });
+    
+    let y = 180;
+    
+    // Tabela de apostas
+    doc.fontSize(10).fillColor('#D4AF37');
+    doc.text('RODADA', 72, y);
+    doc.text('CHAVE', 120, y);
+    doc.text('VALOR', 250, y);
+    doc.text('%', 310, y);
+    doc.text('PRÊMIO', 340, y);
+    doc.text('TOTAL RODADA', 400, y);
+    
+    y += 20;
+    
+    let currentRodada = '';
+    for (const [key, rodada] of apostasPorRodada) {
+      for (let i = 0; i < rodada.apostas.length; i++) {
+        const aposta = rodada.apostas[i];
+        const cavalos = aposta.pareo.cavalos.map((c: any) => c.nome).join(' / ');
+        const isUltima = i === rodada.apostas.length - 1;
+        
+        if (isUltima && rodada.nomeRodada !== currentRodada) {
+          doc.fillColor('#000000').fontSize(8).text(rodada.nomeRodada, 72, y);
+          currentRodada = rodada.nomeRodada;
+        }
+        
+        const chaveText = `${aposta.pareo.numero}- ${cavalos}`;
+        doc.text(chaveText.substring(0, 20), 120, y);
+        doc.text(`R$ ${aposta.valor.toFixed(2)}`, 250, y);
+        doc.text(`${aposta.porcentagemAposta}%`, 310, y);
+        doc.text(`R$ ${aposta.valorPremio.toFixed(2)}`, 340, y);
+        
+        if (isUltima) {
+          doc.text(`R$ ${aposta.valorOriginalPremio.toFixed(2)}`, 400, y);
+        }
+        
+        y += 15;
+        
+        // Pula página se necessário
+        if (y > 700) {
+          doc.addPage();
+          y = 72;
+        }
+      }
+    }
+    
+    doc.fontSize(12).fillColor('#D4AF37').text('TOTAL APOSTADO:', 72, y + 20);
+    doc.fillColor('#000000').text(`R$ ${totalApostado.toFixed(2)}`, 200, y + 20);
+    doc.fillColor('#D4AF37').text('TOTAL PRÊMIO:', 72, y + 40);
+    doc.fillColor('#000000').text(`R$ ${totalPremio.toFixed(2)}`, 200, y + 40);
+    
+    doc.end();
+    
+    return new Promise((resolve) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+  }
+
+  private async gerarPdfComPuppeteer(campeonatoId: number, apostadorId: number): Promise<Buffer> {
     // Busca o apostador
     const apostador = await this.apostadorRepository.findOne({
       where: { id: apostadorId },
@@ -59,8 +169,8 @@ export class PdfService {
         const apostasPorRodada = this.agruparApostasPorRodada(apostas, pareosExcluidos);
 
         // Calcula totais
-        const totalApostado = apostas.reduce((sum, aposta) => sum + aposta.valor, 0);
-        const totalPremio = apostas.reduce((sum, aposta) => sum + aposta.valorPremio, 0);
+        const totalApostado = apostas.reduce((sum, aposta) => sum + Number(aposta.valor), 0);
+        const totalPremio = apostas.reduce((sum, aposta) => sum + Number(aposta.valorPremio), 0);
 
     // Gera HTML
     const html = this.gerarHtmlRelatorio(apostador, apostasPorRodada, totalApostado, totalPremio);
@@ -179,12 +289,12 @@ export class PdfService {
 
       // Calcula o prêmio individual considerando pareos excluídos
       const valorExcluidos = pareosExcluidos.get(chaveRodada) || 0;
-      const valorPremioAjustado = aposta.valorOriginalPremio - valorExcluidos;
-      const valorPremioComRetirada = valorPremioAjustado * (1 - aposta.porcentagemRetirada / 100);
-      const premioIndividual = valorPremioComRetirada * (aposta.porcentagemPremio / 100);
+      const valorPremioAjustado = Number(aposta.valorOriginalPremio) - valorExcluidos;
+      const valorPremioComRetirada = valorPremioAjustado * (1 - Number(aposta.porcentagemRetirada) / 100);
+      const premioIndividual = valorPremioComRetirada * (Number(aposta.porcentagemPremio) / 100);
 
       // Calcula o valor real da aposta (considerando a porcentagem)
-      const valorApostaReal = aposta.valorOriginal * (aposta.porcentagemAposta / 100);
+      const valorApostaReal = Number(aposta.valorOriginal) * (Number(aposta.porcentagemAposta) / 100);
 
       // Cria uma cópia da aposta com os valores calculados
       const apostaComValoresCalculados = {
