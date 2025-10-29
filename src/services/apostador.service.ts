@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Apostador } from '../entities/apostador.entity';
@@ -94,5 +94,63 @@ export class ApostadorService {
     );
 
     return apostadoresComEstatisticas;
+  }
+
+  async renomearApostador(campeonatoId: number, nomeOriginal: string, novoNome: string): Promise<any> {
+    // Normaliza os nomes
+    const nomeOriginalNormalizado = nomeOriginal.trim();
+    const novoNomeNormalizado = novoNome.trim();
+
+    // Verifica se o novo nome já existe (case insensitive)
+    const apostadorExistente = await this.apostadorRepository
+      .createQueryBuilder('apostador')
+      .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: novoNomeNormalizado })
+      .getOne();
+
+    if (apostadorExistente) {
+      throw new ConflictException(`Já existe um apostador com o nome "${novoNomeNormalizado}"`);
+    }
+
+    // Busca o apostador pelo nome original (case insensitive)
+    const apostador = await this.apostadorRepository
+      .createQueryBuilder('apostador')
+      .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: nomeOriginalNormalizado })
+      .getOne();
+
+    if (!apostador) {
+      throw new NotFoundException(`Apostador com nome "${nomeOriginalNormalizado}" não encontrado`);
+    }
+
+    // Verifica se o apostador tem apostas no campeonato especificado
+    const apostasNoCampeonato = await this.apostaRepository.find({
+      where: {
+        apostadorId: apostador.id,
+        campeonatoId: campeonatoId
+      }
+    });
+
+    if (apostasNoCampeonato.length === 0) {
+      throw new NotFoundException(`Apostador "${nomeOriginalNormalizado}" não possui apostas no campeonato ${campeonatoId}`);
+    }
+
+    // Atualiza o nome do apostador
+    apostador.nome = novoNomeNormalizado;
+    apostador.updatedAt = new Date();
+    
+    const apostadorAtualizado = await this.apostadorRepository.save(apostador);
+
+    // Retorna o resultado
+    return {
+      apostador: {
+        id: apostadorAtualizado.id,
+        nome: apostadorAtualizado.nome,
+        createdAt: apostadorAtualizado.createdAt,
+        updatedAt: apostadorAtualizado.updatedAt
+      },
+      apostasAtualizadas: apostasNoCampeonato.length,
+      campeonatoId: campeonatoId,
+      nomeOriginal: nomeOriginalNormalizado,
+      novoNome: novoNomeNormalizado
+    };
   }
 }

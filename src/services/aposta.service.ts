@@ -54,14 +54,19 @@ export class ApostaService {
 
       // Processa cada apostador da aposta
       for (const apostadorData of apostaData.apostadores) {
-        // Busca ou cria o apostador
-        let apostador = await this.apostadorRepository.findOne({
-          where: { nome: apostadorData.nome },
-        });
+        // Normaliza o nome para busca case insensitive
+        const nomeNormalizado = apostadorData.nome.trim();
+        
+        // Busca o apostador usando ILIKE para case insensitive (PostgreSQL) ou LIKE com UPPER (SQLite)
+        let apostador = await this.apostadorRepository
+          .createQueryBuilder('apostador')
+          .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: nomeNormalizado })
+          .getOne();
 
         if (!apostador) {
+          // Cria novo apostador com o nome original (preservando a capitalização original)
           apostador = this.apostadorRepository.create({
-            nome: apostadorData.nome,
+            nome: nomeNormalizado,
           });
           apostador = await this.apostadorRepository.save(apostador);
         }

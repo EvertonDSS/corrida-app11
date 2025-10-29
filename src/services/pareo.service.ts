@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pareo } from '../entities/pareo.entity';
@@ -134,5 +134,121 @@ export class PareoService {
       relations: ['cavalos'],
       order: { numero: 'ASC' },
     });
+  }
+
+  async removerCavalo(campeonatoId: number, tipoRodadaId: number, numeroPareo: string, nomeCavalo: string): Promise<any> {
+    // Normaliza o nome do cavalo
+    const nomeCavaloNormalizado = nomeCavalo.trim();
+    
+    // Busca o pareo
+    const pareo = await this.pareoRepository.findOne({
+      where: {
+        campeonatoId,
+        tipoRodadaId,
+        numero: numeroPareo
+      },
+      relations: ['cavalos']
+    });
+
+    if (!pareo) {
+      throw new NotFoundException(`Pareo ${numeroPareo} não encontrado no campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}`);
+    }
+
+    // Busca o cavalo pelo nome (case insensitive)
+    const cavalo = await this.cavaloRepository
+      .createQueryBuilder('cavalo')
+      .where('cavalo.pareoId = :pareoId', { pareoId: pareo.id })
+      .andWhere('LOWER(cavalo.nome) = LOWER(:nome)', { nome: nomeCavaloNormalizado })
+      .getOne();
+
+    if (!cavalo) {
+      throw new NotFoundException(`Cavalo "${nomeCavaloNormalizado}" não encontrado no pareo ${numeroPareo}`);
+    }
+
+    // Verifica se há outros cavalos no pareo
+    const totalCavalos = await this.cavaloRepository.count({
+      where: { pareoId: pareo.id }
+    });
+
+    if (totalCavalos <= 1) {
+      throw new NotFoundException(`Não é possível remover o último cavalo do pareo ${numeroPareo}. O pareo deve ter pelo menos um cavalo.`);
+    }
+
+    // Remove o cavalo
+    await this.cavaloRepository.remove(cavalo);
+
+    // Busca o pareo atualizado com os cavalos restantes
+    const pareoAtualizado = await this.pareoRepository.findOne({
+      where: { id: pareo.id },
+      relations: ['cavalos']
+    });
+
+    if (!pareoAtualizado) {
+      throw new NotFoundException(`Erro ao buscar pareo atualizado após remoção do cavalo`);
+    }
+
+    return {
+      pareo: {
+        id: pareoAtualizado.id,
+        numero: pareoAtualizado.numero,
+        campeonatoId: pareoAtualizado.campeonatoId,
+        tipoRodadaId: pareoAtualizado.tipoRodadaId,
+        createdAt: pareoAtualizado.createdAt,
+        updatedAt: pareoAtualizado.updatedAt
+      },
+      cavalosRestantes: pareoAtualizado.cavalos.map(cavalo => ({
+        id: cavalo.id,
+        nome: cavalo.nome,
+        identificador: cavalo.identificador,
+        pareoId: cavalo.pareoId
+      })),
+      cavaloRemovido: {
+        id: cavalo.id,
+        nome: cavalo.nome,
+        identificador: cavalo.identificador
+      },
+      totalCavalosAntes: totalCavalos,
+      totalCavalosDepois: pareoAtualizado.cavalos.length
+    };
+  }
+
+  async listarPareosECavalos(campeonatoId: number, tipoRodadaId: number): Promise<any> {
+    // Busca todos os pareos com seus cavalos
+    const pareos = await this.pareoRepository.find({
+      where: { campeonatoId, tipoRodadaId },
+      relations: ['cavalos'],
+      order: { numero: 'ASC' }
+    });
+
+    if (pareos.length === 0) {
+      throw new NotFoundException(`Nenhum pareo encontrado para o campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}`);
+    }
+
+    // Calcula totais
+    const totalCavalos = pareos.reduce((sum, pareo) => sum + pareo.cavalos.length, 0);
+
+    // Formata os dados de retorno
+    const pareosFormatados = pareos.map(pareo => ({
+      id: pareo.id,
+      numero: pareo.numero,
+      campeonatoId: pareo.campeonatoId,
+      tipoRodadaId: pareo.tipoRodadaId,
+      createdAt: pareo.createdAt,
+      updatedAt: pareo.updatedAt,
+      cavalos: pareo.cavalos.map(cavalo => ({
+        id: cavalo.id,
+        nome: cavalo.nome,
+        identificador: cavalo.identificador,
+        pareoId: cavalo.pareoId
+      }))
+    }));
+
+    return {
+      campeonatoId,
+      tipoRodadaId,
+      totalPareos: pareos.length,
+      totalCavalos,
+      pareos: pareosFormatados
+    };
   }
 }
