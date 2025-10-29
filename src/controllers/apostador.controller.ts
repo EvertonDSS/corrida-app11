@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Param, ParseIntPipe, NotFoundException, ConflictException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, NotFoundException, ConflictException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { ApostadorService } from '../services/apostador.service';
 import { RenomearApostadorDto } from '../dto/renomear-apostador.dto';
@@ -7,6 +7,70 @@ import { RenomearApostadorDto } from '../dto/renomear-apostador.dto';
 @Controller('apostadores')
 export class ApostadorController {
   constructor(private readonly apostadorService: ApostadorService) {}
+
+  @Get('campeonato/:campeonatoId')
+  @ApiOperation({
+    summary: 'Listar apostadores por campeonato',
+    description: 'Retorna todos os apostadores que fizeram apostas em um campeonato específico, incluindo suas estatísticas.'
+  })
+  @ApiParam({
+    name: 'campeonatoId',
+    description: 'ID do campeonato',
+    example: 1,
+    type: 'integer'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de apostadores retornada com sucesso.',
+    example: {
+      campeonatoId: 1,
+      totalApostadores: 3,
+      apostadores: [
+        {
+          id: 1,
+          nome: "João Silva",
+          totalApostado: 1500.00,
+          totalPremio: 1200.00,
+          totalApostas: 5,
+          primeiraAposta: "2024-01-15T10:00:00.000Z",
+          ultimaAposta: "2024-01-20T15:30:00.000Z",
+          createdAt: "2024-01-15T10:00:00.000Z",
+          updatedAt: "2024-01-20T15:30:00.000Z"
+        },
+        {
+          id: 2,
+          nome: "Maria Santos",
+          totalApostado: 2000.00,
+          totalPremio: 1800.00,
+          totalApostas: 8,
+          primeiraAposta: "2024-01-16T09:00:00.000Z",
+          ultimaAposta: "2024-01-21T14:00:00.000Z",
+          createdAt: "2024-01-16T09:00:00.000Z",
+          updatedAt: "2024-01-21T14:00:00.000Z"
+        }
+      ]
+    }
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Nenhum apostador encontrado para o campeonato.',
+    example: {
+      campeonatoId: 1,
+      totalApostadores: 0,
+      apostadores: []
+    }
+  })
+  async listarApostadoresPorCampeonato(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number
+  ): Promise<any> {
+    const apostadores = await this.apostadorService.findByCampeonato(campeonatoId);
+    
+    return {
+      campeonatoId,
+      totalApostadores: apostadores.length,
+      apostadores
+    };
+  }
 
   @Post('renomear/:campeonatoId')
   @ApiOperation({ 
