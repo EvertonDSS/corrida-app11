@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe, NotFoundException, ConflictException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { ApostadorService } from '../services/apostador.service';
 import { RenomearApostadorDto } from '../dto/renomear-apostador.dto';
@@ -98,7 +98,7 @@ export class ApostadorController {
   })
   @ApiResponse({ 
     status: 200, 
-    description: 'Apostador renomeado com sucesso.',
+    description: 'Apostador renomeado ou mesclado com sucesso.',
     example: {
       apostador: {
         id: 1,
@@ -109,7 +109,29 @@ export class ApostadorController {
       apostasAtualizadas: 5,
       campeonatoId: 1,
       nomeOriginal: 'João Silva',
-      novoNome: 'João Santos Silva'
+      novoNome: 'João Santos Silva',
+      acao: 'renomeado'
+    }
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Apostador mesclado com apostador existente.',
+    example: {
+      apostador: {
+        id: 2,
+        nome: 'Maria Santos',
+        createdAt: '2024-01-10T10:00:00.000Z',
+        updatedAt: '2024-01-15T15:30:00.000Z'
+      },
+      apostasAtualizadas: 3,
+      campeonatoId: 1,
+      nomeOriginal: 'Maria Silva',
+      novoNome: 'Maria Santos',
+      acao: 'mesclado',
+      apostadorMesclado: {
+        id: 2,
+        nome: 'Maria Santos'
+      }
     }
   })
   @ApiResponse({ 
@@ -119,15 +141,6 @@ export class ApostadorController {
       statusCode: 404,
       message: 'Apostador com nome "João Silva" não encontrado no campeonato',
       error: 'Not Found'
-    }
-  })
-  @ApiResponse({ 
-    status: 409, 
-    description: 'Conflito - Novo nome já existe.',
-    example: {
-      statusCode: 409,
-      message: 'Já existe um apostador com o nome "João Santos Silva"',
-      error: 'Conflict'
     }
   })
   async renomearApostador(
@@ -144,9 +157,6 @@ export class ApostadorController {
       return resultado;
     } catch (error) {
       if (error instanceof NotFoundException) {
-        throw error;
-      }
-      if (error instanceof ConflictException) {
         throw error;
       }
       throw new NotFoundException(`Erro ao renomear apostador: ${error.message}`);

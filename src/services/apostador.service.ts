@@ -101,30 +101,20 @@ export class ApostadorService {
     const nomeOriginalNormalizado = nomeOriginal.trim();
     const novoNomeNormalizado = novoNome.trim();
 
-    // Verifica se o novo nome já existe (case insensitive)
-    const apostadorExistente = await this.apostadorRepository
-      .createQueryBuilder('apostador')
-      .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: novoNomeNormalizado })
-      .getOne();
-
-    if (apostadorExistente) {
-      throw new ConflictException(`Já existe um apostador com o nome "${novoNomeNormalizado}"`);
-    }
-
     // Busca o apostador pelo nome original (case insensitive)
-    const apostador = await this.apostadorRepository
+    const apostadorOriginal = await this.apostadorRepository
       .createQueryBuilder('apostador')
       .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: nomeOriginalNormalizado })
       .getOne();
 
-    if (!apostador) {
+    if (!apostadorOriginal) {
       throw new NotFoundException(`Apostador com nome "${nomeOriginalNormalizado}" não encontrado`);
     }
 
     // Verifica se o apostador tem apostas no campeonato especificado
     const apostasNoCampeonato = await this.apostaRepository.find({
       where: {
-        apostadorId: apostador.id,
+        apostadorId: apostadorOriginal.id,
         campeonatoId: campeonatoId
       }
     });
@@ -133,24 +123,66 @@ export class ApostadorService {
       throw new NotFoundException(`Apostador "${nomeOriginalNormalizado}" não possui apostas no campeonato ${campeonatoId}`);
     }
 
-    // Atualiza o nome do apostador
-    apostador.nome = novoNomeNormalizado;
-    apostador.updatedAt = new Date();
-    
-    const apostadorAtualizado = await this.apostadorRepository.save(apostador);
+    // Verifica se o novo nome já existe (case insensitive)
+    const apostadorExistente = await this.apostadorRepository
+      .createQueryBuilder('apostador')
+      .where('LOWER(apostador.nome) = LOWER(:nome)', { nome: novoNomeNormalizado })
+      .getOne();
 
-    // Retorna o resultado
-    return {
-      apostador: {
-        id: apostadorAtualizado.id,
-        nome: apostadorAtualizado.nome,
-        createdAt: apostadorAtualizado.createdAt,
-        updatedAt: apostadorAtualizado.updatedAt
-      },
-      apostasAtualizadas: apostasNoCampeonato.length,
-      campeonatoId: campeonatoId,
-      nomeOriginal: nomeOriginalNormalizado,
-      novoNome: novoNomeNormalizado
-    };
+    if (apostadorExistente) {
+      // Se o novo nome já existe, mescla as apostas do apostador original com o existente
+      await this.apostaRepository.update(
+        { apostadorId: apostadorOriginal.id },
+        { apostadorId: apostadorExistente.id }
+      );
+
+      // Remove o apostador original (se não tiver mais apostas)
+      const apostasRestantes = await this.apostaRepository.count({
+        where: { apostadorId: apostadorOriginal.id }
+      });
+
+      if (apostasRestantes === 0) {
+        await this.apostadorRepository.remove(apostadorOriginal);
+      }
+
+      // Retorna o resultado da mesclagem
+      return {
+        apostador: {
+          id: apostadorExistente.id,
+          nome: apostadorExistente.nome,
+          createdAt: apostadorExistente.createdAt,
+          updatedAt: apostadorExistente.updatedAt
+        },
+        apostasAtualizadas: apostasNoCampeonato.length,
+        campeonatoId: campeonatoId,
+        nomeOriginal: nomeOriginalNormalizado,
+        novoNome: novoNomeNormalizado,
+        acao: 'mesclado', // Indica que foi mesclado com apostador existente
+        apostadorMesclado: {
+          id: apostadorExistente.id,
+          nome: apostadorExistente.nome
+        }
+      };
+    } else {
+      // Se o novo nome não existe, apenas atualiza o nome do apostador
+      apostadorOriginal.nome = novoNomeNormalizado;
+      apostadorOriginal.updatedAt = new Date();
+      
+      const apostadorAtualizado = await this.apostadorRepository.save(apostadorOriginal);
+
+      return {
+        apostador: {
+          id: apostadorAtualizado.id,
+          nome: apostadorAtualizado.nome,
+          createdAt: apostadorAtualizado.createdAt,
+          updatedAt: apostadorAtualizado.updatedAt
+        },
+        apostasAtualizadas: apostasNoCampeonato.length,
+        campeonatoId: campeonatoId,
+        nomeOriginal: nomeOriginalNormalizado,
+        novoNome: novoNomeNormalizado,
+        acao: 'renomeado' // Indica que foi apenas renomeado
+      };
+    }
   }
 }
