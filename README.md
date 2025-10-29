@@ -7,7 +7,6 @@ Uma aplicação NestJS com PostgreSQL/SQLite para gerenciamento de campeonatos.
 - **NestJS** - Framework Node.js
 - **TypeORM** - ORM para TypeScript
 - **PostgreSQL/SQLite** - Banco de dados (alternável)
-- **Puppeteer** - Geração de PDFs
 - **Swagger** - Documentação da API
 
 ## 📦 Deploy no Render.com
