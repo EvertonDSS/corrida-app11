@@ -2,12 +2,15 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TipoRodada } from '../entities/tipo-rodada.entity';
+import { Aposta } from '../entities/aposta.entity';
 
 @Injectable()
 export class TipoRodadaService {
   constructor(
     @InjectRepository(TipoRodada)
     private tipoRodadaRepository: Repository<TipoRodada>,
+    @InjectRepository(Aposta)
+    private apostaRepository: Repository<Aposta>,
   ) {}
 
   async create(tipoRodadaData: { nome: string }): Promise<TipoRodada> {
@@ -39,5 +42,38 @@ export class TipoRodadaService {
   async remove(id: number): Promise<void> {
     const tipoRodada = await this.findOne(id); // Verifica se existe
     await this.tipoRodadaRepository.delete(id);
+  }
+
+  async listarTiposPorCampeonato(campeonatoId: number): Promise<any> {
+    // Busca tipos de rodada únicos que têm apostas no campeonato
+    const tiposIds = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .select('DISTINCT aposta.tipoRodadaId', 'tipoRodadaId')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .getRawMany();
+
+    if (tiposIds.length === 0) {
+      throw new NotFoundException(`Nenhum tipo de rodada encontrado para o campeonato ${campeonatoId}`);
+    }
+
+    const ids = tiposIds.map(item => item.tipoRodadaId);
+
+    // Busca os tipos de rodada pelos IDs
+    const tipos = await this.tipoRodadaRepository
+      .createQueryBuilder('tipoRodada')
+      .where('tipoRodada.id IN (:...ids)', { ids })
+      .orderBy('tipoRodada.nome', 'ASC')
+      .getMany();
+
+    return {
+      campeonatoId,
+      totalTipos: tipos.length,
+      tipos: tipos.map(tipo => ({
+        id: tipo.id,
+        nome: tipo.nome,
+        createdAt: tipo.createdAt,
+        updatedAt: tipo.updatedAt
+      }))
+    };
   }
 }

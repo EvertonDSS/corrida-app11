@@ -24,6 +24,7 @@ import { PareoExcluido } from './entities/pareo-excluido.entity';
 import { ApostadorController } from './controllers/apostador.controller';
 import { ApostadorService } from './services/apostador.service';
 import { PareosCavalosController } from './controllers/pareos-cavalos.controller';
+import { TiposRodadasController } from './controllers/tipos-rodadas.controller';
 import { getDatabaseConfig } from './config/database.config';
 
 @Module({
@@ -34,7 +35,7 @@ import { getDatabaseConfig } from './config/database.config';
     }),
     TypeOrmModule.forFeature([Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido]),
   ],
-  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController],
+  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController, TiposRodadasController],
   providers: [AppService, CampeonatoService, TipoRodadaService, ApostaService, PdfService, PareoService, PareoExcluidoService, ApostadorService],
 })
 export class AppModule {}
