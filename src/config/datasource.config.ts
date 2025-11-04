@@ -7,12 +7,14 @@ import { Cavalo } from '../entities/cavalo.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
 import { PareoExcluido } from '../entities/pareo-excluido.entity';
+import { RodadaCasa } from '../entities/rodada-casa.entity';
+import { GanhadorPossivel } from '../entities/ganhador-possivel.entity';
 
 const baseConfig = getDatabaseConfig();
 
 export const AppDataSourceConfig: TypeOrmDataSourceOptions = {
   ...baseConfig,
-  entities: [Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido],
+  entities: [Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel],
   migrations: ['dist/migrations/*{.ts,.js}'],
   migrationsTableName: 'migrations',
   logging: false,

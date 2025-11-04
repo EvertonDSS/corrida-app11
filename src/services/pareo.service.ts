@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Pareo } from '../entities/pareo.entity';
 import { Cavalo } from '../entities/cavalo.entity';
+import { TipoRodada } from '../entities/tipo-rodada.entity';
 
 interface PareoData {
   numero: string;
@@ -19,6 +20,8 @@ export class PareoService {
     private pareoRepository: Repository<Pareo>,
     @InjectRepository(Cavalo)
     private cavaloRepository: Repository<Cavalo>,
+    @InjectRepository(TipoRodada)
+    private tipoRodadaRepository: Repository<TipoRodada>,
   ) {}
 
   async criarPareos(campeonatoId: number, tipoRodadaId: number, texto: string): Promise<any> {
@@ -250,5 +253,86 @@ export class PareoService {
       totalCavalos,
       pareos: pareosFormatados
     };
+  }
+
+  async buscarRodadasECavalosPorCampeonatoETipo(campeonatoId: number, tipoRodadaId: number): Promise<any> {
+    const pareos = await this.pareoRepository.find({
+      where: { campeonatoId, tipoRodadaId },
+      relations: ['cavalos'],
+      order: { numero: 'ASC' }
+    });
+
+    if (pareos.length === 0) {
+      throw new NotFoundException(`Nenhum pareo encontrado para o campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}`);
+    }
+
+    // Retorna o primeiro pareo formatado como objeto único
+    const pareo = pareos[0];
+
+    return {
+      idrodada: pareo.id,
+      nomerodada: pareo.numero,
+      cavalos: pareo.cavalos.map(cavalo => ({
+        idcavalo: cavalo.id,
+        nomecavalo: cavalo.nome
+      }))
+    };
+  }
+
+  async buscarRodadasECavalosPorCampeonato(campeonatoId: number, tipoRodadaId?: number): Promise<any[]> {
+    const whereClause: any = { campeonatoId };
+    if (tipoRodadaId !== undefined) {
+      whereClause.tipoRodadaId = tipoRodadaId;
+    }
+
+    const pareos = await this.pareoRepository.find({
+      where: whereClause,
+      relations: ['cavalos'],
+      order: { tipoRodadaId: 'ASC', numero: 'ASC' }
+    });
+
+    if (pareos.length === 0) {
+      throw new NotFoundException(
+        tipoRodadaId 
+          ? `Nenhum pareo encontrado para o campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}`
+          : `Nenhum pareo encontrado para o campeonato ${campeonatoId}`
+      );
+    }
+
+    // Agrupa por tipoRodadaId
+    const agrupadoPorTipo = pareos.reduce((acc, pareo) => {
+      const tipoRodadaId = pareo.tipoRodadaId;
+      
+      if (!acc[tipoRodadaId]) {
+        acc[tipoRodadaId] = [];
+      }
+
+      // Adiciona todos os cavalos deste pareo ao grupo do tipoRodada
+      pareo.cavalos.forEach(cavalo => {
+        acc[tipoRodadaId].push({
+          idcavalo: cavalo.id,
+          nomecavalo: cavalo.nome
+        });
+      });
+
+      return acc;
+    }, {} as Record<number, Array<{ idcavalo: number; nomecavalo: string }>>);
+
+    // Busca os nomes dos tipos de rodada
+    const tiposRodadaIds = Object.keys(agrupadoPorTipo).map(id => parseInt(id, 10));
+    const tiposRodada = await this.tipoRodadaRepository.find({
+      where: { id: In(tiposRodadaIds) }
+    });
+    const tiposRodadaMap = new Map(tiposRodada.map(tipo => [tipo.id, tipo.nome]));
+
+    // Converte para o formato de array solicitado
+    return Object.keys(agrupadoPorTipo).map(tipoRodadaId => {
+      const id = parseInt(tipoRodadaId, 10);
+      return {
+        tiporodada: id,
+        nomerodada: tiposRodadaMap.get(id) || '',
+        cavalos: agrupadoPorTipo[id]
+      };
+    });
   }
 }
