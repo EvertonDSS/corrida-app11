@@ -126,9 +126,13 @@ export class SaldoService {
       );
     });
 
-    // Soma os valores dos prêmios das apostas vencedoras
+    // Soma os valores dos prêmios das apostas vencedoras (proporcional à porcentagemPremio)
     const totalPremiosVencidos = apostasVencedoras.reduce(
-      (sum, aposta) => sum + Number(aposta.valorPremio || 0),
+      (sum, aposta) => {
+        // Calcula o valor proporcional baseado na porcentagem do apostador
+        const valorPremioProporcional = Number(aposta.valorPremio || 0) * (Number(aposta.porcentagemPremio || 0) / 100);
+        return sum + valorPremioProporcional;
+      },
       0
     );
 
