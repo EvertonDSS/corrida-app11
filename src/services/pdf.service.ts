@@ -32,7 +32,35 @@ export class PdfService {
       throw new NotFoundException('Apostador não encontrado');
     }
 
-    const apostas = await this.apostaRepository
+    // Busca pareos excluídos do campeonato primeiro
+    const pareosExcluidosEntities = await this.pareoExcluidoRepository.find({
+      where: { campeonatoId },
+    });
+
+    // Busca os IDs dos pareos excluídos de forma otimizada
+    const pareosIdsExcluidos: number[] = [];
+    if (pareosExcluidosEntities.length > 0) {
+      // Agrupa pareos excluídos por tipoRodadaId para buscar em lote
+      const tiposRodadaIds = [...new Set(pareosExcluidosEntities.map(p => p.tipoRodadaId))];
+      
+      for (const tipoRodadaId of tiposRodadaIds) {
+        const pareosExcluidosDoTipo = pareosExcluidosEntities.filter(p => p.tipoRodadaId === tipoRodadaId);
+        const numerosPareos = pareosExcluidosDoTipo.map(p => p.numeroPareo);
+        
+        // Busca todos os pareos deste tipo usando query builder com IN
+        const pareosEncontrados = await this.pareoRepository
+          .createQueryBuilder('pareo')
+          .where('pareo.campeonatoId = :campeonatoId', { campeonatoId })
+          .andWhere('pareo.tipoRodadaId = :tipoRodadaId', { tipoRodadaId })
+          .andWhere('pareo.numero IN (:...numerosPareos)', { numerosPareos })
+          .getMany();
+
+        pareosIdsExcluidos.push(...pareosEncontrados.map(p => p.id));
+      }
+    }
+
+    // Busca todas as apostas do apostador no campeonato
+    const queryBuilder = this.apostaRepository
       .createQueryBuilder('aposta')
       .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
       .leftJoinAndSelect('aposta.pareo', 'pareo')
@@ -41,7 +69,14 @@ export class PdfService {
       .where('aposta.apostadorId = :apostadorId', { apostadorId })
       .andWhere('aposta.campeonatoId = :campeonatoId', { campeonatoId })
       .andWhere('aposta.valorPremio > 0')
-      .andWhere('aposta.valor > 0')
+      .andWhere('aposta.valor > 0');
+
+    // Exclui apostas de pareos excluídos
+    if (pareosIdsExcluidos.length > 0) {
+      queryBuilder.andWhere('aposta.pareoId NOT IN (:...pareosIdsExcluidos)', { pareosIdsExcluidos });
+    }
+
+    const apostas = await queryBuilder
       .orderBy('aposta.updatedAt', 'DESC')
       .addOrderBy('pareo.numero', 'ASC')
       .getMany();
