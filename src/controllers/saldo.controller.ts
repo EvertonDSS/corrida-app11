@@ -15,17 +15,22 @@ export class SaldoController {
   @ApiParam({ name: 'campeonatoId', description: 'ID do campeonato', example: 5, type: 'integer' })
   @ApiResponse({
     status: 200,
-    description: 'Saldo por apostador retornado com sucesso.',
+    description: 'Saldo por apostador retornado com sucesso. Inclui CASA apenas se houver rodadas casa cadastradas (soma de todas as rodadas casa do campeonato).',
     schema: {
       example: {
         campeonato: { id: 5, nome: 'Campeonato X' },
         apostadores: [
           {
-            id: 1,
             nome: 'João Silva',
             totalApostado: 1500.0,
             totalPremiosVencidos: 2000.0,
             saldoFinal: 500.0
+          },
+          {
+            nome: 'CASA',
+            totalApostado: 0.0,
+            totalPremiosVencidos: 0.0,
+            saldoFinal: 2500.0
           }
         ]
       }

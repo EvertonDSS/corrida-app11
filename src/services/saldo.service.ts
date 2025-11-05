@@ -5,6 +5,7 @@ import { Campeonato } from '../entities/campeonato.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
 import { Vencedor } from '../entities/vencedor.entity';
+import { RodadaCasa } from '../entities/rodada-casa.entity';
 
 @Injectable()
 export class SaldoService {
@@ -17,6 +18,8 @@ export class SaldoService {
     private readonly apostadorRepository: Repository<Apostador>,
     @InjectRepository(Vencedor)
     private readonly vencedorRepository: Repository<Vencedor>,
+    @InjectRepository(RodadaCasa)
+    private readonly rodadaCasaRepository: Repository<RodadaCasa>,
   ) {}
 
   async obterSaldoCampeonato(campeonatoId: number): Promise<any> {
@@ -55,7 +58,6 @@ export class SaldoService {
         const saldoFinal = totalPremiosVencidos - totalApostado;
 
         return {
-          id: apostador.id,
           nome: apostador.nome,
           totalApostado: Number(totalApostado.toFixed(2)),
           totalPremiosVencidos: Number(totalPremiosVencidos.toFixed(2)),
@@ -63,6 +65,22 @@ export class SaldoService {
         };
       })
     );
+
+    // Busca e calcula o valor total da CASA
+    const rodadasCasa = await this.rodadaCasaRepository.find({
+      where: { campeonatoId },
+    });
+    const totalCasa = rodadasCasa.reduce((sum, rodadaCasa) => sum + Number(rodadaCasa.valorCasa || 0), 0);
+
+    // Adiciona CASA à lista de apostadores apenas se houver rodadas casa cadastradas
+    if (rodadasCasa.length > 0 && totalCasa > 0) {
+      itens.push({
+        nome: 'CASA',
+        totalApostado: 0,
+        totalPremiosVencidos: 0,
+        saldoFinal: Number(totalCasa.toFixed(2)),
+      });
+    }
 
     return {
       campeonato: {
