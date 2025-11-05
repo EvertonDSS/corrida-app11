@@ -47,14 +47,25 @@ export class PdfService {
       .getMany();
 
     const pareosExcluidos = await this.buscarPareosExcluidos(campeonatoId, apostas);
-    const apostasPorRodada = this.agruparApostasPorRodada(apostas, pareosExcluidos);
+    const pareosExcluidosDetalhados = await this.buscarPareosExcluidosDetalhados(campeonatoId, apostas);
+    
+    // Cria mapa de valorExcluido por nomeRodada (somente quando temApostasAtivas = true)
+    // Agrupa por nomeRodada para somar todos os valorExcluido da mesma rodada
+    const valorExcluidoPorNomeRodada = new Map<string, number>();
+    for (const excluido of pareosExcluidosDetalhados) {
+      if (excluido.temApostasAtivas) {
+        const nomeRodada = excluido.nomeRodada;
+        const valorAtual = valorExcluidoPorNomeRodada.get(nomeRodada) || 0;
+        valorExcluidoPorNomeRodada.set(nomeRodada, valorAtual + Number(excluido.valorExcluido));
+      }
+    }
+    
+    const apostasPorRodada = this.agruparApostasPorRodada(apostas, pareosExcluidos, valorExcluidoPorNomeRodada);
 
     const totalApostado = apostas.reduce((sum, aposta) => sum + Number(aposta.valor), 0);
     const totalPremio = apostas.reduce((sum, aposta) => sum + Number(aposta.valorPremio), 0);
 
     const apostasPorRodadaArray = Array.from(apostasPorRodada.values());
-
-    const pareosExcluidosDetalhados = await this.buscarPareosExcluidosDetalhados(campeonatoId, apostas);
 
     return {
       apostador: {
@@ -191,7 +202,7 @@ export class PdfService {
     return pareosExcluidos;
   }
 
-  private agruparApostasPorRodada(apostas: Aposta[], pareosExcluidos: Map<string, number>): Map<string, any> {
+  private agruparApostasPorRodada(apostas: Aposta[], pareosExcluidos: Map<string, number>, valorExcluidoPorNomeRodada: Map<string, number>): Map<string, any> {
     const agrupadas = new Map();
 
     for (const aposta of apostas) {
@@ -206,9 +217,14 @@ export class PdfService {
         });
       }
 
+      // Calcula o valorOriginalPremio ajustado diminuindo valorExcluido quando temApostasAtivas = true
+      // Busca pelo nomeRodada (não pela chaveRodada completa)
+      const valorExcluido = valorExcluidoPorNomeRodada.get(aposta.nomeRodada) || 0;
+      const valorOriginalPremioAjustado = Number(aposta.valorOriginalPremio) - valorExcluido;
+
       // Calcula o prêmio individual considerando pareos excluídos
       const valorExcluidos = pareosExcluidos.get(chaveRodada) || 0;
-      const valorPremioAjustado = Number(aposta.valorOriginalPremio) - valorExcluidos;
+      const valorPremioAjustado = valorOriginalPremioAjustado - valorExcluidos;
       const valorPremioComRetirada = valorPremioAjustado * (1 - Number(aposta.porcentagemRetirada) / 100);
       const premioIndividual = valorPremioComRetirada * (Number(aposta.porcentagemPremio) / 100);
 
@@ -219,7 +235,8 @@ export class PdfService {
       const apostaComValoresCalculados = {
         ...aposta,
         valor: valorApostaReal, // Valor real apostado pelo apostador
-        valorPremio: premioIndividual // Prêmio individual calculado
+        valorPremio: premioIndividual, // Prêmio individual calculado
+        valorOriginalPremio: valorOriginalPremioAjustado // ValorOriginalPremio ajustado (diminuindo pareos excluídos)
       };
 
       agrupadas.get(chaveRodada).apostas.push(apostaComValoresCalculados);
