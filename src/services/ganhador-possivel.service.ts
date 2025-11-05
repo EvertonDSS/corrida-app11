@@ -138,10 +138,10 @@ export class GanhadorPossivelService {
       where: { id: In(cavalosIds) },
     });
     const nomesCavalosGanhadores = new Map(
-      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, cavalo.nome.toLowerCase()])
+      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, (cavalo.nome || '').trim().toLowerCase()])
     );
     const nomesCavalosOriginais = new Map(
-      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, cavalo.nome])
+      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, (cavalo.nome || '').trim()])
     );
 
     // Busca todas as apostas do campeonato com pareos e cavalos carregados
@@ -163,16 +163,19 @@ export class GanhadorPossivelService {
         const cavalosComApostadores: any = {};
         const apostadoresPorCavalo = new Map<string, Map<string, number>>();
         
+        // Filtra apostas apenas deste tipo de rodada quando agrupado
+        const apostasDoTipo = apostas.filter(aposta => aposta.tipoRodadaId === tipoRodadaId);
+        
         for (const ganhador of ganhadoresDoTipo) {
           const nomeCavaloGanhador = nomesCavalosGanhadores.get(ganhador.cavaloId);
           const nomeCavaloOriginal = nomesCavalosOriginais.get(ganhador.cavaloId);
           if (!nomeCavaloGanhador || !nomeCavaloOriginal) continue;
 
           // Busca apostas onde o pareo tem algum cavalo com o mesmo nome (case-insensitive)
-          const apostasDoCavalo = apostas.filter(aposta => {
+          const apostasDoCavalo = apostasDoTipo.filter(aposta => {
             if (!aposta.pareo || !aposta.pareo.cavalos) return false;
             return aposta.pareo.cavalos.some(
-              cavalo => cavalo.nome.toLowerCase() === nomeCavaloGanhador
+              cavalo => cavalo.nome && cavalo.nome.trim().toLowerCase() === nomeCavaloGanhador.trim().toLowerCase()
             );
           });
 
@@ -183,15 +186,16 @@ export class GanhadorPossivelService {
 
           const mapaApostadores = apostadoresPorCavalo.get(nomeCavaloOriginal)!;
 
-          // Soma os valores de prêmio para cada apostador
+          // Soma os valores de prêmio para cada apostador (proporcional à porcentagemPremio)
           for (const aposta of apostasDoCavalo) {
             const nomeApostador = aposta.apostador.nome;
-            const valorPremio = Number(aposta.valorPremio);
+            // Calcula o valor proporcional baseado na porcentagem do apostador
+            const valorPremioProporcional = Number(aposta.valorPremio) * (Number(aposta.porcentagemPremio) / 100);
             
             if (mapaApostadores.has(nomeApostador)) {
-              mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremio);
+              mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremioProporcional);
             } else {
-              mapaApostadores.set(nomeApostador, valorPremio);
+              mapaApostadores.set(nomeApostador, valorPremioProporcional);
             }
           }
         }
@@ -228,7 +232,7 @@ export class GanhadorPossivelService {
         const apostasDoCavalo = apostas.filter(aposta => {
           if (!aposta.pareo || !aposta.pareo.cavalos) return false;
           return aposta.pareo.cavalos.some(
-            cavalo => cavalo.nome.toLowerCase() === nomeCavaloGanhador
+            cavalo => cavalo.nome && cavalo.nome.trim().toLowerCase() === nomeCavaloGanhador.trim().toLowerCase()
           );
         });
 
@@ -239,15 +243,16 @@ export class GanhadorPossivelService {
 
         const mapaApostadores = apostadoresPorCavalo.get(nomeCavaloOriginal)!;
 
-        // Soma os valores de prêmio para cada apostador
+        // Soma os valores de prêmio para cada apostador (proporcional à porcentagemPremio)
         for (const aposta of apostasDoCavalo) {
           const nomeApostador = aposta.apostador.nome;
-          const valorPremio = Number(aposta.valorPremio);
+          // Calcula o valor proporcional baseado na porcentagem do apostador
+          const valorPremioProporcional = Number(aposta.valorPremio) * (Number(aposta.porcentagemPremio) / 100);
           
           if (mapaApostadores.has(nomeApostador)) {
-            mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremio);
+            mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremioProporcional);
           } else {
-            mapaApostadores.set(nomeApostador, valorPremio);
+            mapaApostadores.set(nomeApostador, valorPremioProporcional);
           }
         }
       }
