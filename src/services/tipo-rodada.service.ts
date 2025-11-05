@@ -2,15 +2,15 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TipoRodada } from '../entities/tipo-rodada.entity';
-import { Aposta } from '../entities/aposta.entity';
+import { Pareo } from '../entities/pareo.entity';
 
 @Injectable()
 export class TipoRodadaService {
   constructor(
     @InjectRepository(TipoRodada)
     private tipoRodadaRepository: Repository<TipoRodada>,
-    @InjectRepository(Aposta)
-    private apostaRepository: Repository<Aposta>,
+    @InjectRepository(Pareo)
+    private pareoRepository: Repository<Pareo>,
   ) {}
 
   async create(tipoRodadaData: { nome: string }): Promise<TipoRodada> {
@@ -45,11 +45,11 @@ export class TipoRodadaService {
   }
 
   async listarTiposPorCampeonato(campeonatoId: number): Promise<any> {
-    // Busca tipos de rodada únicos que têm apostas no campeonato
-    const tiposIds = await this.apostaRepository
-      .createQueryBuilder('aposta')
-      .select('DISTINCT aposta.tipoRodadaId', 'tipoRodadaId')
-      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+    // Busca tipos de rodada únicos que têm pareos no campeonato
+    const tiposIds = await this.pareoRepository
+      .createQueryBuilder('pareo')
+      .select('DISTINCT pareo.tipoRodadaId', 'tipoRodadaId')
+      .where('pareo.campeonatoId = :campeonatoId', { campeonatoId })
       .getRawMany();
 
     if (tiposIds.length === 0) {
