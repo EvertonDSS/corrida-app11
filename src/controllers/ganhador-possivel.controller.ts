@@ -206,13 +206,13 @@ export class GanhadorPossivelController {
         {
           tiporodada: 1,
           nometiporodada: 'Chave',
-          cavalo1: [
+          'Cavalo Vencedor': [
             {
               nomeapostador: 'João Silva',
               valorpremio: 100.0,
             },
           ],
-          cavalo2: [
+          'Cavalo Azul': [
             {
               nomeapostador: 'Maria Santos',
               valorpremio: 200.0,
@@ -226,7 +226,7 @@ export class GanhadorPossivelController {
         {
           tiporodada: 2,
           nometiporodada: 'Individual',
-          cavalo3: [
+          'Cavalo Branco': [
             {
               nomeapostador: 'Ana Costa',
               valorpremio: 300.0,

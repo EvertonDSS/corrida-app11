@@ -115,23 +115,26 @@ export class GanhadorPossivelService {
     });
     const tiposRodadaMap = new Map(tiposRodada.map(tipo => [tipo.id, tipo.nome]));
 
-    // Busca os cavalos
+    // Busca os cavalos ganhadores possíveis para obter os nomes
     const cavalosIds = [...new Set(ganhadoresPossiveis.map(g => g.cavaloId))];
-    const cavalos = await this.cavaloRepository.find({
+    const cavalosGanhadoresPossiveis = await this.cavaloRepository.find({
       where: { id: In(cavalosIds) },
-      relations: ['pareo'],
     });
-    const cavalosMap = new Map(cavalos.map(cavalo => [cavalo.id, cavalo]));
+    const nomesCavalosGanhadores = new Map(
+      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, cavalo.nome.toLowerCase()])
+    );
+    const nomesCavalosOriginais = new Map(
+      cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, cavalo.nome])
+    );
 
-    // Busca todas as apostas do campeonato relacionadas aos pareos dos cavalos possíveis ganhadores
-    const pareosIds = cavalos.map(c => c.pareoId);
-    const apostas = await this.apostaRepository.find({
-      where: {
-        campeonatoId,
-        pareoId: In(pareosIds),
-      },
-      relations: ['apostador', 'pareo'],
-    });
+    // Busca todas as apostas do campeonato com pareos e cavalos carregados
+    const apostas = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalos')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .getMany();
 
     // Agrupa por tipoRodadaId
     const agrupadoPorTipo = new Map<number, any>();
@@ -142,20 +145,26 @@ export class GanhadorPossivelService {
       const cavalosComApostadores: any = {};
       
       for (const ganhador of ganhadoresDoTipo) {
-        const cavalo = cavalosMap.get(ganhador.cavaloId);
-        if (!cavalo) continue;
+        const nomeCavaloGanhador = nomesCavalosGanhadores.get(ganhador.cavaloId);
+        const nomeCavaloOriginal = nomesCavalosOriginais.get(ganhador.cavaloId);
+        if (!nomeCavaloGanhador || !nomeCavaloOriginal) continue;
 
-        // Busca apostas relacionadas a este pareo
-        const apostasDoPareo = apostas.filter(a => a.pareoId === cavalo.pareoId);
+        // Busca apostas onde o pareo tem algum cavalo com o mesmo nome (case-insensitive)
+        const apostasDoCavalo = apostas.filter(aposta => {
+          if (!aposta.pareo || !aposta.pareo.cavalos) return false;
+          return aposta.pareo.cavalos.some(
+            cavalo => cavalo.nome.toLowerCase() === nomeCavaloGanhador
+          );
+        });
         
         // Formata apostadores com nome e valorPremio
-        const apostadores = apostasDoPareo.map(aposta => ({
+        const apostadores = apostasDoCavalo.map(aposta => ({
           nomeapostador: aposta.apostador.nome,
           valorpremio: Number(aposta.valorPremio),
         }));
 
         // Usa o nome do cavalo como chave
-        cavalosComApostadores[`cavalo${ganhador.cavaloId}`] = apostadores;
+        cavalosComApostadores[nomeCavaloOriginal] = apostadores;
       }
 
       agrupadoPorTipo.set(tipoRodadaId, {

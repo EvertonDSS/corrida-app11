@@ -279,60 +279,35 @@ export class PareoService {
     };
   }
 
-  async buscarRodadasECavalosPorCampeonato(campeonatoId: number, tipoRodadaId?: number): Promise<any[]> {
-    const whereClause: any = { campeonatoId };
-    if (tipoRodadaId !== undefined) {
-      whereClause.tipoRodadaId = tipoRodadaId;
-    }
-
+  async buscarRodadasECavalosPorCampeonato(campeonatoId: number): Promise<any[]> {
+    // Busca todos os pareos do campeonato
     const pareos = await this.pareoRepository.find({
-      where: whereClause,
+      where: { campeonatoId },
       relations: ['cavalos'],
       order: { tipoRodadaId: 'ASC', numero: 'ASC' }
     });
 
     if (pareos.length === 0) {
-      throw new NotFoundException(
-        tipoRodadaId 
-          ? `Nenhum pareo encontrado para o campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}`
-          : `Nenhum pareo encontrado para o campeonato ${campeonatoId}`
-      );
+      throw new NotFoundException(`Nenhum pareo encontrado para o campeonato ${campeonatoId}`);
     }
 
-    // Agrupa por tipoRodadaId
-    const agrupadoPorTipo = pareos.reduce((acc, pareo) => {
-      const tipoRodadaId = pareo.tipoRodadaId;
-      
-      if (!acc[tipoRodadaId]) {
-        acc[tipoRodadaId] = [];
+    // Coleta todos os cavalos e remove duplicatas baseado no nome (case-insensitive)
+    const cavalosUnicos = new Map<string, { idcavalo: number; nomecavalo: string }>();
+    
+    for (const pareo of pareos) {
+      for (const cavalo of pareo.cavalos) {
+        const nomeNormalizado = cavalo.nome.toLowerCase();
+        // Se ainda não existe um cavalo com este nome, adiciona
+        if (!cavalosUnicos.has(nomeNormalizado)) {
+          cavalosUnicos.set(nomeNormalizado, {
+            idcavalo: cavalo.id,
+            nomecavalo: cavalo.nome
+          });
+        }
       }
+    }
 
-      // Adiciona todos os cavalos deste pareo ao grupo do tipoRodada
-      pareo.cavalos.forEach(cavalo => {
-        acc[tipoRodadaId].push({
-          idcavalo: cavalo.id,
-          nomecavalo: cavalo.nome
-        });
-      });
-
-      return acc;
-    }, {} as Record<number, Array<{ idcavalo: number; nomecavalo: string }>>);
-
-    // Busca os nomes dos tipos de rodada
-    const tiposRodadaIds = Object.keys(agrupadoPorTipo).map(id => parseInt(id, 10));
-    const tiposRodada = await this.tipoRodadaRepository.find({
-      where: { id: In(tiposRodadaIds) }
-    });
-    const tiposRodadaMap = new Map(tiposRodada.map(tipo => [tipo.id, tipo.nome]));
-
-    // Converte para o formato de array solicitado
-    return Object.keys(agrupadoPorTipo).map(tipoRodadaId => {
-      const id = parseInt(tipoRodadaId, 10);
-      return {
-        tiporodada: id,
-        nomerodada: tiposRodadaMap.get(id) || '',
-        cavalos: agrupadoPorTipo[id]
-      };
-    });
+    // Retorna array de cavalos únicos
+    return Array.from(cavalosUnicos.values());
   }
 }

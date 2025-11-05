@@ -23,6 +23,7 @@ async function bootstrap() {
     .addTag('apostas', 'Operações relacionadas a apostas')
     .addTag('apostadores', 'Operações relacionadas a apostadores')
     .addTag('pdf', 'Geração de relatórios em PDF')
+    .addTag('vencedores', 'Operações relacionadas a vencedores')
     .build();
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);

@@ -10,7 +10,7 @@ export class SaldoController {
   @Get('campeonato/:campeonatoId')
   @ApiOperation({
     summary: 'Saldo final do campeonato',
-    description: 'Retorna o saldo final do campeonato por apostador (total de prêmios vencidos - total apostado). O total de prêmios vencidos retorna 0 por enquanto.'
+    description: 'Retorna o saldo final do campeonato por apostador (total de prêmios vencidos - total apostado). Calcula os prêmios vencidos verificando se o apostador tem apostas no cavalo vencedor do campeonato (comparação por nome do cavalo).'
   })
   @ApiParam({ name: 'campeonatoId', description: 'ID do campeonato', example: 5, type: 'integer' })
   @ApiResponse({
@@ -24,8 +24,8 @@ export class SaldoController {
             id: 1,
             nome: 'João Silva',
             totalApostado: 1500.0,
-            totalPremiosVencidos: 0,
-            saldoFinal: -1500.0
+            totalPremiosVencidos: 2000.0,
+            saldoFinal: 500.0
           }
         ]
       }

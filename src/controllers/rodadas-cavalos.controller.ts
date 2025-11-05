@@ -1,5 +1,5 @@
-import { Controller, Get, Param, ParseIntPipe, Query, NotFoundException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Param, ParseIntPipe, NotFoundException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { PareoService } from '../services/pareo.service';
 
 @ApiTags('rodadas-cavalos')
@@ -62,8 +62,8 @@ export class RodadasCavalosController {
 
   @Get(':campeonatoId')
   @ApiOperation({
-    summary: 'Listar rodadas e cavalos por campeonato',
-    description: 'Retorna todas as rodadas agrupadas por tipo de rodada e seus cavalos para um campeonato específico. Pode filtrar por tipoRodadaId usando o query parameter idRodada.'
+    summary: 'Listar cavalos únicos por campeonato',
+    description: 'Retorna todos os cavalos únicos (sem repetir nomes) de todas as apostas do campeonato, sem agrupar por tipo de rodada.'
   })
   @ApiParam({
     name: 'campeonatoId',
@@ -71,46 +71,14 @@ export class RodadasCavalosController {
     example: 1,
     type: 'integer'
   })
-  @ApiQuery({
-    name: 'idRodada',
-    description: 'ID do tipo de rodada (opcional). Se fornecido, retorna apenas aquele tipo de rodada.',
-    required: false,
-    type: 'integer',
-    example: 1
-  })
   @ApiResponse({
     status: 200,
-    description: 'Lista de rodadas e cavalos agrupadas por tipo de rodada retornada com sucesso.',
+    description: 'Lista de cavalos únicos retornada com sucesso.',
     schema: {
       example: [
-        {
-          tiporodada: 1,
-          nomerodada: 'Chave',
-          cavalos: [
-            {
-              idcavalo: 1,
-              nomecavalo: 'Cavalo A'
-            },
-            {
-              idcavalo: 2,
-              nomecavalo: 'Cavalo B'
-            }
-          ]
-        },
-        {
-          tiporodada: 2,
-          nomerodada: 'Individual',
-          cavalos: [
-            {
-              idcavalo: 3,
-              nomecavalo: 'Cavalo C'
-            },
-            {
-              idcavalo: 4,
-              nomecavalo: 'Cavalo D'
-            }
-          ]
-        }
+        { idcavalo: 1, nomecavalo: 'Cavalo A' },
+        { idcavalo: 2, nomecavalo: 'Cavalo B' },
+        { idcavalo: 3, nomecavalo: 'Cavalo C' }
       ]
     }
   })
@@ -124,10 +92,8 @@ export class RodadasCavalosController {
     }
   })
   async buscarRodadasECavalosPorCampeonato(
-    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-    @Query('idRodada') idRodada?: string
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number
   ): Promise<any[]> {
-    const tipoRodadaId = idRodada ? parseInt(idRodada, 10) : undefined;
-    return this.pareoService.buscarRodadasECavalosPorCampeonato(campeonatoId, tipoRodadaId);
+    return this.pareoService.buscarRodadasECavalosPorCampeonato(campeonatoId);
   }
 }

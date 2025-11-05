@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Campeonato } from '../entities/campeonato.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
+import { Vencedor } from '../entities/vencedor.entity';
 
 @Injectable()
 export class SaldoService {
@@ -14,6 +15,8 @@ export class SaldoService {
     private readonly apostaRepository: Repository<Aposta>,
     @InjectRepository(Apostador)
     private readonly apostadorRepository: Repository<Apostador>,
+    @InjectRepository(Vencedor)
+    private readonly vencedorRepository: Repository<Vencedor>,
   ) {}
 
   async obterSaldoCampeonato(campeonatoId: number): Promise<any> {
@@ -83,9 +86,53 @@ export class SaldoService {
     return valorCampo;
   }
 
-  // Placeholder: por enquanto retorna 0 conforme pedido
   private async calcularTotalPremiosVencidos(apostadorId: number, campeonatoId: number): Promise<number> {
-    return 0;
+    // Busca o vencedor do campeonato
+    const vencedor = await this.vencedorRepository.findOne({
+      where: { campeonatoId },
+      relations: ['cavalo'],
+    });
+
+    // Se não há vencedor definido, retorna 0
+    if (!vencedor || !vencedor.cavalo) {
+      return 0;
+    }
+
+    const nomeCavaloVencedor = vencedor.cavalo.nome.toLowerCase();
+
+    // Busca o apostador pelo ID
+    const apostador = await this.apostadorRepository.findOne({
+      where: { id: apostadorId },
+    });
+
+    if (!apostador) {
+      return 0;
+    }
+
+    // Busca todas as apostas do apostador no campeonato com pareos e cavalos carregados
+    const apostas = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalos')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('aposta.apostadorId = :apostadorId', { apostadorId })
+      .getMany();
+
+    // Filtra apostas onde o pareo tem algum cavalo com o mesmo nome do cavalo vencedor (case-insensitive)
+    const apostasVencedoras = apostas.filter(aposta => {
+      if (!aposta.pareo || !aposta.pareo.cavalos) return false;
+      return aposta.pareo.cavalos.some(
+        cavalo => cavalo.nome.toLowerCase() === nomeCavaloVencedor
+      );
+    });
+
+    // Soma os valores dos prêmios das apostas vencedoras
+    const totalPremiosVencidos = apostasVencedoras.reduce(
+      (sum, aposta) => sum + Number(aposta.valorPremio || 0),
+      0
+    );
+
+    return totalPremiosVencidos;
   }
 }
 
