@@ -24,7 +24,6 @@ export class GanhadorPossivelService {
 
   async definirGanhadoresPossiveis(
     campeonatoId: number,
-    tipoRodadaId: number,
     cavalosIds: number[],
   ): Promise<GanhadorPossivel[]> {
     // Verifica se os cavalos existem
@@ -38,24 +37,42 @@ export class GanhadorPossivelService {
       throw new NotFoundException(`Cavalos com IDs ${idsNaoEncontrados.join(', ')} não encontrados`);
     }
 
-    // Remove registros existentes para este campeonato e tipo de rodada
+    // Busca todos os tipos de rodada que têm pareos no campeonato
+    const tiposRodadaIds = await this.pareoRepository
+      .createQueryBuilder('pareo')
+      .select('DISTINCT pareo.tipoRodadaId', 'tipoRodadaId')
+      .where('pareo.campeonatoId = :campeonatoId', { campeonatoId })
+      .getRawMany();
+
+    if (tiposRodadaIds.length === 0) {
+      throw new NotFoundException(`Nenhum tipo de rodada encontrado para o campeonato ${campeonatoId}`);
+    }
+
+    const tiposIds = tiposRodadaIds.map(item => item.tipoRodadaId);
+
+    // Remove registros existentes para este campeonato e todos os tipos de rodada
     const registrosExistentes = await this.ganhadorPossivelRepository.find({
-      where: { campeonatoId, tipoRodadaId },
+      where: { campeonatoId, tipoRodadaId: In(tiposIds) },
     });
 
     if (registrosExistentes.length > 0) {
       await this.ganhadorPossivelRepository.remove(registrosExistentes);
     }
 
-    // Cria novos registros
-    const novosRegistros = cavalosIds.map(cavaloId => {
-      return this.ganhadorPossivelRepository.create({
-        campeonatoId,
-        tipoRodadaId,
-        cavaloId,
-        isVencedor: false,
-      });
-    });
+    // Cria novos registros para cada tipo de rodada
+    const novosRegistros: GanhadorPossivel[] = [];
+    for (const tipoRodadaId of tiposIds) {
+      for (const cavaloId of cavalosIds) {
+        novosRegistros.push(
+          this.ganhadorPossivelRepository.create({
+            campeonatoId,
+            tipoRodadaId,
+            cavaloId,
+            isVencedor: false,
+          })
+        );
+      }
+    }
 
     return await this.ganhadorPossivelRepository.save(novosRegistros);
   }
@@ -97,7 +114,7 @@ export class GanhadorPossivelService {
     });
   }
 
-  async buscarGanhadoresPossiveisComApostadores(campeonatoId: number): Promise<any[]> {
+  async buscarGanhadoresPossiveisComApostadores(campeonatoId: number, agrupado: boolean = true): Promise<any> {
     // Busca todos os ganhadores possíveis do campeonato
     const ganhadoresPossiveis = await this.ganhadorPossivelRepository.find({
       where: { campeonatoId },
@@ -105,7 +122,7 @@ export class GanhadorPossivelService {
     });
 
     if (ganhadoresPossiveis.length === 0) {
-      return [];
+      return agrupado ? [] : {};
     }
 
     // Busca os tipos de rodada únicos
@@ -136,15 +153,73 @@ export class GanhadorPossivelService {
       .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
       .getMany();
 
-    // Agrupa por tipoRodadaId
-    const agrupadoPorTipo = new Map<number, any>();
+    if (agrupado) {
+      // Agrupa por tipoRodadaId
+      const agrupadoPorTipo = new Map<number, any>();
 
-    for (const tipoRodadaId of tiposRodadaIds) {
-      const ganhadoresDoTipo = ganhadoresPossiveis.filter(g => g.tipoRodadaId === tipoRodadaId);
-      
+      for (const tipoRodadaId of tiposRodadaIds) {
+        const ganhadoresDoTipo = ganhadoresPossiveis.filter(g => g.tipoRodadaId === tipoRodadaId);
+        
+        const cavalosComApostadores: any = {};
+        const apostadoresPorCavalo = new Map<string, Map<string, number>>();
+        
+        for (const ganhador of ganhadoresDoTipo) {
+          const nomeCavaloGanhador = nomesCavalosGanhadores.get(ganhador.cavaloId);
+          const nomeCavaloOriginal = nomesCavalosOriginais.get(ganhador.cavaloId);
+          if (!nomeCavaloGanhador || !nomeCavaloOriginal) continue;
+
+          // Busca apostas onde o pareo tem algum cavalo com o mesmo nome (case-insensitive)
+          const apostasDoCavalo = apostas.filter(aposta => {
+            if (!aposta.pareo || !aposta.pareo.cavalos) return false;
+            return aposta.pareo.cavalos.some(
+              cavalo => cavalo.nome.toLowerCase() === nomeCavaloGanhador
+            );
+          });
+
+          // Inicializa o mapa para este cavalo se não existir
+          if (!apostadoresPorCavalo.has(nomeCavaloOriginal)) {
+            apostadoresPorCavalo.set(nomeCavaloOriginal, new Map<string, number>());
+          }
+
+          const mapaApostadores = apostadoresPorCavalo.get(nomeCavaloOriginal)!;
+
+          // Soma os valores de prêmio para cada apostador
+          for (const aposta of apostasDoCavalo) {
+            const nomeApostador = aposta.apostador.nome;
+            const valorPremio = Number(aposta.valorPremio);
+            
+            if (mapaApostadores.has(nomeApostador)) {
+              mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremio);
+            } else {
+              mapaApostadores.set(nomeApostador, valorPremio);
+            }
+          }
+        }
+
+        // Converte os mapas em arrays de objetos para cada cavalo
+        for (const [nomeCavalo, mapaApostadores] of apostadoresPorCavalo) {
+          const apostadores = Array.from(mapaApostadores.entries()).map(([nomeapostador, valorpremio]) => ({
+            nomeapostador,
+            valorpremio: Number(valorpremio.toFixed(2)),
+          }));
+          cavalosComApostadores[nomeCavalo] = apostadores;
+        }
+
+        agrupadoPorTipo.set(tipoRodadaId, {
+          tiporodada: tipoRodadaId,
+          nometiporodada: tiposRodadaMap.get(tipoRodadaId) || '',
+          ...cavalosComApostadores,
+        });
+      }
+
+      return Array.from(agrupadoPorTipo.values());
+    } else {
+      // Não agrupa por tipo de rodada - agrupa apenas por cavalo
       const cavalosComApostadores: any = {};
-      
-      for (const ganhador of ganhadoresDoTipo) {
+      const apostadoresPorCavalo = new Map<string, Map<string, number>>();
+
+      // Para cada ganhador possível, busca suas apostas
+      for (const ganhador of ganhadoresPossiveis) {
         const nomeCavaloGanhador = nomesCavalosGanhadores.get(ganhador.cavaloId);
         const nomeCavaloOriginal = nomesCavalosOriginais.get(ganhador.cavaloId);
         if (!nomeCavaloGanhador || !nomeCavaloOriginal) continue;
@@ -156,24 +231,37 @@ export class GanhadorPossivelService {
             cavalo => cavalo.nome.toLowerCase() === nomeCavaloGanhador
           );
         });
-        
-        // Formata apostadores com nome e valorPremio
-        const apostadores = apostasDoCavalo.map(aposta => ({
-          nomeapostador: aposta.apostador.nome,
-          valorpremio: Number(aposta.valorPremio),
-        }));
 
-        // Usa o nome do cavalo como chave
-        cavalosComApostadores[nomeCavaloOriginal] = apostadores;
+        // Inicializa o mapa para este cavalo se não existir
+        if (!apostadoresPorCavalo.has(nomeCavaloOriginal)) {
+          apostadoresPorCavalo.set(nomeCavaloOriginal, new Map<string, number>());
+        }
+
+        const mapaApostadores = apostadoresPorCavalo.get(nomeCavaloOriginal)!;
+
+        // Soma os valores de prêmio para cada apostador
+        for (const aposta of apostasDoCavalo) {
+          const nomeApostador = aposta.apostador.nome;
+          const valorPremio = Number(aposta.valorPremio);
+          
+          if (mapaApostadores.has(nomeApostador)) {
+            mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremio);
+          } else {
+            mapaApostadores.set(nomeApostador, valorPremio);
+          }
+        }
       }
 
-      agrupadoPorTipo.set(tipoRodadaId, {
-        tiporodada: tipoRodadaId,
-        nometiporodada: tiposRodadaMap.get(tipoRodadaId) || '',
-        ...cavalosComApostadores,
-      });
-    }
+      // Converte os mapas em arrays de objetos
+      for (const [nomeCavalo, mapaApostadores] of apostadoresPorCavalo) {
+        const apostadores = Array.from(mapaApostadores.entries()).map(([nomeapostador, valorpremio]) => ({
+          nomeapostador,
+          valorpremio: Number(valorpremio.toFixed(2)),
+        }));
+        cavalosComApostadores[nomeCavalo] = apostadores;
+      }
 
-    return Array.from(agrupadoPorTipo.values());
+      return cavalosComApostadores;
+    }
   }
 }

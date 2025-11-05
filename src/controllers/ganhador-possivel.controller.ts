@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Put, Param, ParseIntPipe, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Param, ParseIntPipe, Body, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiResponse, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { GanhadorPossivelService } from '../services/ganhador-possivel.service';
 import { DefinirGanhadoresPossiveisDto } from '../dto/definir-ganhadores-possiveis.dto';
 import { DefinirVencedorDto } from '../dto/definir-vencedor.dto';
@@ -13,7 +13,7 @@ export class GanhadorPossivelController {
   @Post(':campeonatoId')
   @ApiOperation({
     summary: 'Definir ganhadores possíveis',
-    description: 'Define a lista de cavalos possíveis ganhadores para um campeonato e tipo de rodada. Substitui registros existentes se já houver.',
+    description: 'Define a lista de cavalos possíveis ganhadores para um campeonato. Cria ganhadores possíveis para todos os tipos de rodada que têm pareos no campeonato. Substitui registros existentes se já houver.',
   })
   @ApiParam({
     name: 'campeonatoId',
@@ -21,12 +21,11 @@ export class GanhadorPossivelController {
     example: 1,
     type: 'integer',
   })
-  @ApiBody({
+    @ApiBody({
     type: DefinirGanhadoresPossiveisDto,
     examples: {
       example1: {
         value: {
-          tipoRodadaId: 1,
           cavalosIds: [1, 2, 3, 4],
         },
       },
@@ -68,7 +67,6 @@ export class GanhadorPossivelController {
   ): Promise<GanhadorPossivel[]> {
     return this.ganhadorPossivelService.definirGanhadoresPossiveis(
       campeonatoId,
-      dto.tipoRodadaId,
       dto.cavalosIds,
     );
   }
@@ -134,13 +132,20 @@ export class GanhadorPossivelController {
   @Get(':campeonatoId')
   @ApiOperation({
     summary: 'Buscar ganhadores possíveis com apostadores',
-    description: 'Retorna os ganhadores possíveis agrupados por tipo de rodada com os apostadores e seus valores de prêmio para cada cavalo',
+    description: 'Retorna os ganhadores possíveis com os apostadores e seus valores de prêmio. Se agrupado=true, retorna agrupado por tipo de rodada. Se agrupado=false, retorna todos os apostadores independente do tipo de rodada, somando valores quando o mesmo apostador aparece múltiplas vezes.',
   })
   @ApiParam({
     name: 'campeonatoId',
     description: 'ID do campeonato',
     example: 1,
     type: 'integer',
+  })
+  @ApiQuery({
+    name: 'agrupado',
+    description: 'Se true, agrupa por tipo de rodada. Se false, retorna todos os apostadores independente do tipo de rodada.',
+    required: false,
+    type: Boolean,
+    example: true,
   })
   @ApiResponse({
     status: 200,
@@ -180,9 +185,41 @@ export class GanhadorPossivelController {
       ],
     },
   })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ganhadores possíveis sem agrupamento por tipo de rodada (agrupado=false).',
+    schema: {
+      example: {
+        'Cavalo Vencedor': [
+          {
+            nomeapostador: 'João Silva',
+            valorpremio: 250.0,
+          },
+        ],
+        'Cavalo Azul': [
+          {
+            nomeapostador: 'Maria Santos',
+            valorpremio: 400.0,
+          },
+          {
+            nomeapostador: 'Pedro Oliveira',
+            valorpremio: 150.0,
+          },
+        ],
+        'Cavalo Branco': [
+          {
+            nomeapostador: 'Ana Costa',
+            valorpremio: 300.0,
+          },
+        ],
+      },
+    },
+  })
   async buscarGanhadoresPossiveisComApostadores(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-  ): Promise<any[]> {
-    return this.ganhadorPossivelService.buscarGanhadoresPossiveisComApostadores(campeonatoId);
+    @Query('agrupado') agrupado?: string,
+  ): Promise<any> {
+    const agrupadoBool = agrupado === undefined ? true : agrupado === 'true';
+    return this.ganhadorPossivelService.buscarGanhadoresPossiveisComApostadores(campeonatoId, agrupadoBool);
   }
 }
