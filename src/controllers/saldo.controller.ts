@@ -28,9 +28,9 @@ export class SaldoController {
           },
           {
             nome: 'CASA',
-            totalApostado: 0.0,
+            totalApostado: 2500.0,
             totalPremiosVencidos: 0.0,
-            saldoFinal: 2500.0
+            saldoFinal: -2500.0
           }
         ]
       }

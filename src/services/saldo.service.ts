@@ -54,14 +54,18 @@ export class SaldoService {
         });
 
         const totalApostado = apostas.reduce((sum, aposta) => sum + this.calcularValorRealApostado(aposta), 0);
-        const totalPremiosVencidos = await this.calcularTotalPremiosVencidos(apostador.id, campeonatoId);
-        const saldoFinal = totalPremiosVencidos - totalApostado;
+        const totalPremiosVencidosBruto = await this.calcularTotalPremiosVencidos(apostador.id, campeonatoId);
+        // Arredonda para baixo: 573.75 -> 573
+        const totalPremiosVencidos = Math.floor(totalPremiosVencidosBruto);
+        const saldoFinalBruto = totalPremiosVencidos - totalApostado;
+        // Arredonda para baixo: positivos (573.75 -> 573), negativos (-573.75 -> -574)
+        const saldoFinal = Math.floor(saldoFinalBruto);
 
         return {
           nome: apostador.nome,
           totalApostado: Number(totalApostado.toFixed(2)),
-          totalPremiosVencidos: Number(totalPremiosVencidos.toFixed(2)),
-          saldoFinal: Number(saldoFinal.toFixed(2)),
+          totalPremiosVencidos: totalPremiosVencidos,
+          saldoFinal: saldoFinal,
         };
       })
     );
@@ -74,11 +78,17 @@ export class SaldoService {
 
     // Adiciona CASA à lista de apostadores apenas se houver rodadas casa cadastradas
     if (rodadasCasa.length > 0 && totalCasa > 0) {
+      const totalApostadoCasa = Number(totalCasa.toFixed(2));
+      const totalPremiosVencidosCasa = 0;
+      const saldoFinalCasaBruto = totalPremiosVencidosCasa - totalApostadoCasa;
+      // Arredonda para baixo: positivos (573.75 -> 573), negativos (-573.75 -> -574)
+      const saldoFinalCasa = Math.floor(saldoFinalCasaBruto);
+      
       itens.push({
         nome: 'CASA',
-        totalApostado: 0,
-        totalPremiosVencidos: 0,
-        saldoFinal: Number(totalCasa.toFixed(2)),
+        totalApostado: totalApostadoCasa,
+        totalPremiosVencidos: totalPremiosVencidosCasa,
+        saldoFinal: saldoFinalCasa,
       });
     }
 
