@@ -10,7 +10,7 @@ import { GanhadorPossivel } from '../entities/ganhador-possivel.entity';
 export class GanhadorPossivelController {
   constructor(private readonly ganhadorPossivelService: GanhadorPossivelService) {}
 
-  @Post(':campeonatoId/:tipoRodadaId')
+  @Post(':campeonatoId')
   @ApiOperation({
     summary: 'Definir ganhadores possíveis',
     description: 'Define a lista de cavalos possíveis ganhadores para um campeonato e tipo de rodada. Substitui registros existentes se já houver.',
@@ -21,17 +21,12 @@ export class GanhadorPossivelController {
     example: 1,
     type: 'integer',
   })
-  @ApiParam({
-    name: 'tipoRodadaId',
-    description: 'ID do tipo de rodada',
-    example: 1,
-    type: 'integer',
-  })
   @ApiBody({
     type: DefinirGanhadoresPossiveisDto,
     examples: {
       example1: {
         value: {
+          tipoRodadaId: 1,
           cavalosIds: [1, 2, 3, 4],
         },
       },
@@ -69,12 +64,11 @@ export class GanhadorPossivelController {
   })
   async definirGanhadoresPossiveis(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-    @Param('tipoRodadaId', ParseIntPipe) tipoRodadaId: number,
     @Body() dto: DefinirGanhadoresPossiveisDto,
   ): Promise<GanhadorPossivel[]> {
     return this.ganhadorPossivelService.definirGanhadoresPossiveis(
       campeonatoId,
-      tipoRodadaId,
+      dto.tipoRodadaId,
       dto.cavalosIds,
     );
   }
@@ -135,56 +129,6 @@ export class GanhadorPossivelController {
       tipoRodadaId,
       dto.cavaloId,
     );
-  }
-
-  @Get(':campeonatoId/:tipoRodadaId')
-  @ApiOperation({
-    summary: 'Buscar ganhadores possíveis por tipo de rodada',
-    description: 'Retorna a lista de ganhadores possíveis para um campeonato e tipo de rodada específicos',
-  })
-  @ApiParam({
-    name: 'campeonatoId',
-    description: 'ID do campeonato',
-    example: 1,
-    type: 'integer',
-  })
-  @ApiParam({
-    name: 'tipoRodadaId',
-    description: 'ID do tipo de rodada',
-    example: 1,
-    type: 'integer',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Lista de ganhadores possíveis retornada com sucesso.',
-    schema: {
-      example: [
-        {
-          id: 1,
-          campeonatoId: 1,
-          tipoRodadaId: 1,
-          cavaloId: 1,
-          isVencedor: false,
-          createdAt: '2024-01-15T10:00:00.000Z',
-          updatedAt: '2024-01-15T10:00:00.000Z',
-        },
-        {
-          id: 2,
-          campeonatoId: 1,
-          tipoRodadaId: 1,
-          cavaloId: 2,
-          isVencedor: true,
-          createdAt: '2024-01-15T10:00:00.000Z',
-          updatedAt: '2024-01-15T10:00:00.000Z',
-        },
-      ],
-    },
-  })
-  async buscarGanhadoresPossiveis(
-    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-    @Param('tipoRodadaId', ParseIntPipe) tipoRodadaId: number,
-  ): Promise<GanhadorPossivel[]> {
-    return this.ganhadorPossivelService.buscarGanhadoresPossiveis(campeonatoId, tipoRodadaId);
   }
 
   @Get(':campeonatoId')

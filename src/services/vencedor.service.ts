@@ -52,7 +52,6 @@ export class VencedorService {
     if (vencedorExistente) {
       // Atualiza o vencedor existente
       vencedorExistente.cavaloId = cavaloEncontrado.id;
-      vencedorExistente.updatedAt = new Date();
       return await this.vencedorRepository.save(vencedorExistente);
     }
 
