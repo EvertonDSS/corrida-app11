@@ -12,7 +12,7 @@ export class VencedorController {
   @Post(':campeonatoId')
   @ApiOperation({
     summary: 'Definir cavalo vencedor',
-    description: 'Salva um cavalo como vencedor de um campeonato. Se já existir um vencedor para o campeonato, atualiza o registro.',
+    description: 'Salva um cavalo como vencedor de um campeonato. Permite cadastrar múltiplos vencedores para o mesmo campeonato.',
   })
   @ApiParam({
     name: 'campeonatoId',
@@ -23,37 +23,40 @@ export class VencedorController {
   @ApiBody({
     type: CreateVencedorDto,
     examples: {
-      example1: {
+      unico: {
+        summary: 'Adicionar somente um cavalo',
         value: {
           cavaloId: 5,
+        },
+      },
+      multiplo: {
+        summary: 'Substituir pelos cavalos informados',
+        value: {
+          cavalosIds: [5, 8, 12],
         },
       },
     },
   })
   @ApiResponse({
     status: 201,
-    description: 'Vencedor criado com sucesso.',
+    description: 'Vencedores cadastrados/atualizados com sucesso.',
     schema: {
-      example: {
-        id: 1,
-        campeonatoId: 1,
-        cavaloId: 5,
-        createdAt: '2024-01-15T10:00:00.000Z',
-        updatedAt: '2024-01-15T10:00:00.000Z',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Vencedor atualizado com sucesso (quando já existe um vencedor para o campeonato).',
-    schema: {
-      example: {
-        id: 1,
-        campeonatoId: 1,
-        cavaloId: 8,
-        createdAt: '2024-01-15T10:00:00.000Z',
-        updatedAt: '2024-01-15T15:30:00.000Z',
-      },
+      example: [
+        {
+          id: 10,
+          campeonatoId: 1,
+          cavaloId: 5,
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-15T10:00:00.000Z',
+        },
+        {
+          id: 11,
+          campeonatoId: 1,
+          cavaloId: 8,
+          createdAt: '2024-01-15T10:01:00.000Z',
+          updatedAt: '2024-01-15T10:01:00.000Z',
+        },
+      ],
     },
   })
   @ApiResponse({
@@ -63,14 +66,14 @@ export class VencedorController {
   async criarVencedor(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
     @Body() createDto: CreateVencedorDto,
-  ): Promise<Vencedor> {
+  ): Promise<Vencedor[]> {
     return this.vencedorService.criarVencedor(campeonatoId, createDto);
   }
 
   @Get(':campeonatoId')
   @ApiOperation({
     summary: 'Buscar vencedor por campeonato',
-    description: 'Retorna o cavalo vencedor e lista de apostadores vencedores com seus valores de prêmio',
+    description: 'Retorna os cavalos vencedores e lista de apostadores vencedores com seus valores de prêmio',
   })
   @ApiParam({
     name: 'campeonatoId',
@@ -80,22 +83,33 @@ export class VencedorController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Vencedor encontrado com sucesso.',
+    description: 'Vencedores encontrados com sucesso.',
     schema: {
       example: {
-        nomecavalovencedor: 'Cavalo Vencedor',
         vencedores: [
           {
-            nomeapostador: 'João Silva',
-            valorpremio: 100.0,
+            cavaloId: 5,
+            nomecavalovencedor: 'Cavalo Vencedor 1',
+            vencedores: [
+              {
+                nomeapostador: 'João Silva',
+                valorpremio: 150.0,
+              },
+              {
+                nomeapostador: 'Maria Santos',
+                valorpremio: 200.0,
+              },
+            ],
           },
           {
-            nomeapostador: 'Maria Santos',
-            valorpremio: 200.0,
-          },
-          {
-            nomeapostador: 'Pedro Oliveira',
-            valorpremio: 150.0,
+            cavaloId: 8,
+            nomecavalovencedor: 'Cavalo Vencedor 2',
+            vencedores: [
+              {
+                nomeapostador: 'Pedro Oliveira',
+                valorpremio: 300.0,
+              },
+            ],
           },
         ],
       },
@@ -103,7 +117,7 @@ export class VencedorController {
   })
   @ApiResponse({
     status: 404,
-    description: 'Vencedor não encontrado para o campeonato.',
+    description: 'Nenhum vencedor encontrado para o campeonato.',
   })
   async buscarVencedorPorCampeonato(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,

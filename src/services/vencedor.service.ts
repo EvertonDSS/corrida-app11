@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vencedor } from '../entities/vencedor.entity';
@@ -6,6 +6,7 @@ import { Cavalo } from '../entities/cavalo.entity';
 import { Campeonato } from '../entities/campeonato.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { CreateVencedorDto } from '../dto/create-vencedor.dto';
+import { VencedorRodada } from '../entities/vencedor-rodada.entity';
 
 @Injectable()
 export class VencedorService {
@@ -18,9 +19,14 @@ export class VencedorService {
     private readonly campeonatoRepository: Repository<Campeonato>,
     @InjectRepository(Aposta)
     private readonly apostaRepository: Repository<Aposta>,
+    @InjectRepository(VencedorRodada)
+    private readonly vencedorRodadaRepository: Repository<VencedorRodada>,
   ) {}
 
-  async criarVencedor(campeonatoId: number, createDto: CreateVencedorDto): Promise<Vencedor> {
+  async criarVencedor(
+    campeonatoId: number,
+    createDto: CreateVencedorDto,
+  ): Promise<Vencedor[]> {
     // Verifica se o campeonato existe
     const campeonato = await this.campeonatoRepository.findOne({
       where: { id: campeonatoId },
@@ -30,53 +36,74 @@ export class VencedorService {
       throw new NotFoundException(`Campeonato com ID ${campeonatoId} não encontrado`);
     }
 
-    // Busca o cavalo pelo ID e verifica se pertence ao campeonato
-    const cavaloEncontrado = await this.cavaloRepository
+    const idsInformados = this.normalizarCavalosIds(createDto);
+
+    if (!idsInformados.length) {
+      throw new BadRequestException('Informe pelo menos um cavalo para registrar como vencedor.');
+    }
+
+    const cavalosEncontrados = await this.cavaloRepository
       .createQueryBuilder('cavalo')
       .innerJoin('cavalo.pareo', 'pareo')
-      .where('cavalo.id = :cavaloId', { cavaloId: createDto.cavaloId })
+      .where('cavalo.id IN (:...cavalosIds)', { cavalosIds: idsInformados })
       .andWhere('pareo.campeonatoId = :campeonatoId', { campeonatoId })
-      .getOne();
+      .getMany();
 
-    if (!cavaloEncontrado) {
+    const idsEncontrados = cavalosEncontrados.map(cavalo => cavalo.id);
+    const idsNaoEncontrados = idsInformados.filter(id => !idsEncontrados.includes(id));
+
+    if (idsNaoEncontrados.length) {
       throw new NotFoundException(
-        `Cavalo com ID ${createDto.cavaloId} não encontrado no campeonato ${campeonatoId}`
+        `Os cavalos [${idsNaoEncontrados.join(', ')}] não foram encontrados no campeonato ${campeonatoId}`,
       );
     }
 
-    // Verifica se já existe um vencedor para este campeonato
-    const vencedorExistente = await this.vencedorRepository.findOne({
-      where: { campeonatoId },
-    });
+    const substituirTodos = !!createDto.cavalosIds?.length;
 
-    if (vencedorExistente) {
-      // Atualiza o vencedor existente
-      vencedorExistente.cavaloId = cavaloEncontrado.id;
-      return await this.vencedorRepository.save(vencedorExistente);
+    if (substituirTodos) {
+      await this.vencedorRepository.delete({ campeonatoId });
     }
 
-    // Cria novo vencedor
-    const vencedor = this.vencedorRepository.create({
-      campeonatoId,
-      cavaloId: cavaloEncontrado.id,
+    const existentes = await this.vencedorRepository.find({
+      where: { campeonatoId },
     });
+    const idsJaCadastrados = new Set(existentes.map(v => v.cavaloId));
 
-    return await this.vencedorRepository.save(vencedor);
+    const idsParaCriar = substituirTodos
+      ? idsInformados
+      : idsInformados.filter(id => !idsJaCadastrados.has(id));
+
+    if (idsParaCriar.length) {
+      const vencedoresParaSalvar = idsParaCriar.map(id =>
+        this.vencedorRepository.create({ campeonatoId, cavaloId: id }),
+      );
+      await this.vencedorRepository.save(vencedoresParaSalvar);
+    }
+
+    return this.vencedorRepository.find({
+      where: { campeonatoId },
+      relations: ['cavalo', 'campeonato'],
+      order: { createdAt: 'ASC' },
+    });
   }
 
   async buscarVencedorPorCampeonato(campeonatoId: number): Promise<any> {
-    const vencedor = await this.vencedorRepository.findOne({
+    const vencedoresCampeonato = await this.vencedorRepository.find({
       where: { campeonatoId },
       relations: ['cavalo', 'campeonato'],
+      order: { createdAt: 'ASC' },
     });
 
-    if (!vencedor) {
+    if (!vencedoresCampeonato.length) {
       throw new NotFoundException(`Vencedor não encontrado para o campeonato ${campeonatoId}`);
     }
 
-    // Busca o nome do cavalo vencedor
-    const nomeCavaloVencedor = vencedor.cavalo.nome;
-    const nomeCavaloVencedorLower = nomeCavaloVencedor.toLowerCase();
+    const vencedoresEspecificos = await this.vencedorRodadaRepository.find({
+      where: { campeonatoId },
+    });
+    const rodadasComVencedorEspecifico = new Set(
+      vencedoresEspecificos.map(item => item.nomeRodada.trim().toLowerCase()),
+    );
 
     // Busca todas as apostas do campeonato com pareos e cavalos carregados
     const apostas = await this.apostaRepository
@@ -87,23 +114,44 @@ export class VencedorService {
       .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
       .getMany();
 
-    // Filtra apostas onde o pareo tem algum cavalo com o mesmo nome (case-insensitive)
-    const apostasVencedoras = apostas.filter(aposta => {
-      if (!aposta.pareo || !aposta.pareo.cavalos) return false;
-      return aposta.pareo.cavalos.some(
-        cavalo => cavalo.nome.toLowerCase() === nomeCavaloVencedorLower
-      );
+    const vencedoresFormatados = vencedoresCampeonato.map(vencedor => {
+      const nomeCavaloVencedor = vencedor.cavalo.nome;
+      const nomeCavaloVencedorLower = nomeCavaloVencedor.toLowerCase();
+
+      const apostasVencedoras = apostas.filter(aposta => {
+        if (!aposta.pareo || !aposta.pareo.cavalos) return false;
+        const nomeRodadaAposta = aposta.nomeRodada?.trim().toLowerCase();
+        if (nomeRodadaAposta && rodadasComVencedorEspecifico.has(nomeRodadaAposta)) {
+          return false;
+        }
+        return aposta.pareo.cavalos.some(
+          cavalo => cavalo.nome.toLowerCase() === nomeCavaloVencedorLower
+        );
+      });
+
+      const valoresPorApostador = new Map<string, number>();
+
+      apostasVencedoras.forEach(aposta => {
+        const nomeApostador = aposta.apostador?.nome ?? 'Desconhecido';
+        const valorPremio = Number(aposta.valorPremio ?? 0);
+        const acumuladoAtual = valoresPorApostador.get(nomeApostador) ?? 0;
+        valoresPorApostador.set(nomeApostador, acumuladoAtual + valorPremio);
+      });
+
+      const vencedores = Array.from(valoresPorApostador.entries()).map(([nome, valor]) => ({
+        nomeapostador: nome,
+        valorpremio: Number(valor.toFixed(2)),
+      }));
+
+      return {
+        cavaloId: vencedor.cavaloId,
+        nomecavalovencedor: nomeCavaloVencedor,
+        vencedores,
+      };
     });
 
-    // Formata apostadores vencedores com nome e valor do prêmio
-    const vencedores = apostasVencedoras.map(aposta => ({
-      nomeapostador: aposta.apostador.nome,
-      valorpremio: Number(aposta.valorPremio),
-    }));
-
     return {
-      nomecavalovencedor: nomeCavaloVencedor,
-      vencedores: vencedores,
+      vencedores: vencedoresFormatados,
     };
   }
 
@@ -112,6 +160,18 @@ export class VencedorService {
       relations: ['cavalo', 'campeonato'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  private normalizarCavalosIds(createDto: CreateVencedorDto): number[] {
+    if (createDto.cavalosIds?.length) {
+      return Array.from(new Set(createDto.cavalosIds));
+    }
+
+    if (createDto.cavaloId) {
+      return [createDto.cavaloId];
+    }
+
+    return [];
   }
 }
 
