@@ -42,6 +42,7 @@ import { RodadaService } from './services/rodada.service';
 import { VencedorRodada } from './entities/vencedor-rodada.entity';
 import { VencedorRodadaController } from './controllers/vencedor-rodada.controller';
 import { VencedorRodadaService } from './services/vencedor-rodada.service';
+import { ApostaRodadaController } from './controllers/aposta-rodada.controller';
 import { getDatabaseConfig } from './config/database.config';
 
 @Module({
@@ -52,7 +53,7 @@ import { getDatabaseConfig } from './config/database.config';
     }),
     TypeOrmModule.forFeature([Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel, Vencedor, VencedorRodada]),
   ],
-  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController, TiposRodadasController, SaldoController, RodadaCasaController, RodadasCavalosController, GanhadorPossivelController, VencedorController, RodadaController, VencedorRodadaController],
+  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController, TiposRodadasController, SaldoController, RodadaCasaController, RodadasCavalosController, GanhadorPossivelController, VencedorController, RodadaController, VencedorRodadaController, ApostaRodadaController],
   providers: [AppService, CampeonatoService, TipoRodadaService, ApostaService, PdfService, PareoService, PareoExcluidoService, ApostadorService, SaldoService, RodadaCasaService, GanhadorPossivelService, VencedorService, RodadaService, VencedorRodadaService],
 })
 export class AppModule {}

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Aposta } from '../entities/aposta.entity';
@@ -257,10 +257,111 @@ export class ApostaService {
     return parseFloat(valor.replace(/\./g, '').replace(',', '.'));
   }
 
+  private parseDecimalInput(valor?: string | number): number | undefined {
+    if (valor === undefined || valor === null || valor === '') {
+      return undefined;
+    }
+
+    if (typeof valor === 'number') {
+      return valor;
+    }
+
+    const texto = valor.trim();
+    if (!texto) {
+      return undefined;
+    }
+
+    let normalizado: string;
+    if (texto.includes(',') && texto.includes('.')) {
+      normalizado = texto.replace(/\./g, '').replace(',', '.');
+    } else if (texto.includes(',')) {
+      normalizado = texto.replace(',', '.');
+    } else {
+      normalizado = texto;
+    }
+
+    const convertido = Number(normalizado);
+
+    if (Number.isNaN(convertido)) {
+      throw new BadRequestException(`Valor numérico inválido: ${valor}`);
+    }
+
+    return convertido;
+  }
+
   async findByNomeRodada(campeonatoId: number, tipoRodadaId: number, nomeRodada: string): Promise<Aposta[]> {
     return await this.apostaRepository.find({
       where: { campeonatoId, tipoRodadaId, nomeRodada },
       relations: ['apostador', 'pareo', 'tipoRodada'],
+    });
+  }
+
+  async atualizarApostasRodada(
+    campeonatoId: number,
+    tipoRodadaId: number,
+    nomeRodada: string,
+    apostasAtualizadas: Array<{
+      id: number;
+      valor?: string;
+      valorOriginal?: string;
+      porcentagemAposta?: string;
+      porcentagemPremio?: string;
+      valorPremio?: string;
+      valorOriginalPremio?: string;
+      porcentagemRetirada?: string;
+    }>,
+  ): Promise<Aposta[]> {
+    const nomeRodadaNormalizado = nomeRodada.trim();
+
+    const apostasExistentes = await this.apostaRepository.find({
+      where: { campeonatoId, tipoRodadaId, nomeRodada: nomeRodadaNormalizado },
+      relations: ['apostador', 'pareo', 'tipoRodada'],
+    });
+
+    if (!apostasExistentes.length) {
+      throw new NotFoundException(
+        `Nenhuma aposta encontrada para o campeonato ${campeonatoId}, tipo ${tipoRodadaId} e rodada ${nomeRodadaNormalizado}`,
+      );
+    }
+
+    const apostasMap = new Map<number, Aposta>();
+    apostasExistentes.forEach(aposta => apostasMap.set(aposta.id, aposta));
+
+    for (const apostaDto of apostasAtualizadas) {
+      const aposta = apostasMap.get(apostaDto.id);
+
+      if (!aposta) {
+        throw new NotFoundException(`Aposta com ID ${apostaDto.id} não encontrada para a rodada informada.`);
+      }
+
+      const valor = this.parseDecimalInput(apostaDto.valor);
+      if (valor !== undefined) aposta.valor = valor;
+
+      const valorOriginal = this.parseDecimalInput(apostaDto.valorOriginal);
+      if (valorOriginal !== undefined) aposta.valorOriginal = valorOriginal;
+
+      const porcentagemAposta = this.parseDecimalInput(apostaDto.porcentagemAposta);
+      if (porcentagemAposta !== undefined) aposta.porcentagemAposta = porcentagemAposta;
+
+      const porcentagemPremio = this.parseDecimalInput(apostaDto.porcentagemPremio);
+      if (porcentagemPremio !== undefined) aposta.porcentagemPremio = porcentagemPremio;
+
+      const valorPremio = this.parseDecimalInput(apostaDto.valorPremio);
+      if (valorPremio !== undefined) aposta.valorPremio = valorPremio;
+
+      const valorOriginalPremio = this.parseDecimalInput(apostaDto.valorOriginalPremio);
+      if (valorOriginalPremio !== undefined) aposta.valorOriginalPremio = valorOriginalPremio;
+
+      const porcentagemRetirada = this.parseDecimalInput(apostaDto.porcentagemRetirada);
+      if (porcentagemRetirada !== undefined) aposta.porcentagemRetirada = porcentagemRetirada;
+    }
+
+    await this.apostaRepository.save(Array.from(apostasMap.values()));
+
+    return this.apostaRepository.find({
+      where: { campeonatoId, tipoRodadaId, nomeRodada: nomeRodadaNormalizado },
+      relations: ['apostador', 'pareo', 'tipoRodada'],
+      order: { id: 'ASC' },
     });
   }
 

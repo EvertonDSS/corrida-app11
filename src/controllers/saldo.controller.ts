@@ -1,6 +1,7 @@
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { SaldoService } from '../services/saldo.service';
+import { ObterSaldosMultiplosDto } from '../dto/obter-saldos-multiplos.dto';
 
 @ApiTags('saldos')
 @Controller('saldos')
@@ -40,6 +41,55 @@ export class SaldoController {
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number
   ): Promise<any> {
     return this.saldoService.obterSaldoCampeonato(campeonatoId);
+  }
+
+  @Post('campeonatos')
+  @ApiOperation({
+    summary: 'Saldo consolidado de múltiplos campeonatos',
+    description:
+      'Recebe uma lista de campeonatos e retorna o saldo consolidado de apostadores e CASA, somando apostas, prêmios e saldo final por nome. Considera pareos excluídos e ignora rodadas com vencedores específicos.',
+  })
+  @ApiBody({
+    type: ObterSaldosMultiplosDto,
+    examples: {
+      exemploPadrao: {
+        summary: 'Consolidar saldos dos campeonatos 1, 2 e 5',
+        value: {
+          campeonatosIds: [1, 2, 5],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Saldo consolidado retornado com sucesso.',
+    schema: {
+      example: {
+        campeonatos: [
+          { id: 1, nome: 'Campeonato 1' },
+          { id: 2, nome: 'Campeonato 2' },
+        ],
+        apostadores: [
+          {
+            nome: 'João Silva',
+            totalApostado: 3000,
+            totalPremiosVencidos: 2500,
+            saldoFinal: -500,
+          },
+          {
+            nome: 'CASA',
+            totalApostado: 4000,
+            totalPremiosVencidos: 0,
+            saldoFinal: -4000,
+          },
+        ],
+      },
+    },
+  })
+  async obterSaldoMultiplosCampeonatos(
+    @Body() body: ObterSaldosMultiplosDto,
+  ): Promise<any> {
+    return this.saldoService.obterSaldoMultiplosCampeonatos(body.campeonatosIds);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Campeonato } from '../entities/campeonato.entity';
@@ -6,6 +6,7 @@ import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
 import { Vencedor } from '../entities/vencedor.entity';
 import { RodadaCasa } from '../entities/rodada-casa.entity';
+import { VencedorRodada } from '../entities/vencedor-rodada.entity';
 
 @Injectable()
 export class SaldoService {
@@ -20,6 +21,8 @@ export class SaldoService {
     private readonly vencedorRepository: Repository<Vencedor>,
     @InjectRepository(RodadaCasa)
     private readonly rodadaCasaRepository: Repository<RodadaCasa>,
+    @InjectRepository(VencedorRodada)
+    private readonly vencedorRodadaRepository: Repository<VencedorRodada>,
   ) {}
 
   async obterSaldoCampeonato(campeonatoId: number): Promise<any> {
@@ -101,6 +104,53 @@ export class SaldoService {
     };
   }
 
+  async obterSaldoMultiplosCampeonatos(campeonatoIds: number[]): Promise<any> {
+    const idsUnicos = Array.from(new Set(campeonatoIds.filter(id => typeof id === 'number')));
+
+    if (!idsUnicos.length) {
+      throw new BadRequestException('Informe ao menos um campeonatoId válido.');
+    }
+
+    const saldos = await Promise.all(idsUnicos.map(id => this.obterSaldoCampeonato(id)));
+
+    const agregados = new Map<string, { totalApostado: number; totalPremiosVencidos: number }>();
+
+    saldos.forEach(saldo => {
+      saldo.apostadores.forEach(apostador => {
+        const chave = apostador.nome;
+        const atual = agregados.get(chave) ?? { totalApostado: 0, totalPremiosVencidos: 0 };
+        atual.totalApostado += Number(apostador.totalApostado || 0);
+        atual.totalPremiosVencidos += Number(apostador.totalPremiosVencidos || 0);
+        agregados.set(chave, atual);
+      });
+    });
+
+    const apostadoresAggregados = Array.from(agregados.entries())
+      .map(([nome, valores]) => {
+        const totalApostado = Number(valores.totalApostado.toFixed(2));
+        const totalPremiosVencidos = Math.floor(valores.totalPremiosVencidos);
+        const saldoFinalBruto = totalPremiosVencidos - totalApostado;
+        const saldoFinal = Math.floor(saldoFinalBruto);
+
+        return {
+          nome,
+          totalApostado,
+          totalPremiosVencidos,
+          saldoFinal,
+        };
+      })
+      .sort((a, b) => {
+        if (a.nome === 'CASA') return 1;
+        if (b.nome === 'CASA') return -1;
+        return a.nome.localeCompare(b.nome);
+      });
+
+    return {
+      campeonatos: saldos.map(saldo => saldo.campeonato),
+      apostadores: apostadoresAggregados,
+    };
+  }
+
   private calcularValorRealApostado(aposta: Aposta): number {
     const valorOriginal = Number((aposta as any).valorOriginal ?? 0);
     const porcentagemAposta = Number((aposta as any).porcentagemAposta ?? 0);
@@ -115,27 +165,26 @@ export class SaldoService {
   }
 
   private async calcularTotalPremiosVencidos(apostadorId: number, campeonatoId: number): Promise<number> {
-    // Busca o vencedor do campeonato
-    const vencedor = await this.vencedorRepository.findOne({
+    // Busca os vencedores gerais do campeonato
+    const vencedores = await this.vencedorRepository.find({
       where: { campeonatoId },
       relations: ['cavalo'],
     });
 
-    // Se não há vencedor definido, retorna 0
-    if (!vencedor || !vencedor.cavalo) {
+    const nomesCavalosVencedores = vencedores
+      .filter(v => v.cavalo?.nome)
+      .map(v => v.cavalo.nome.trim().toLowerCase());
+
+    if (!nomesCavalosVencedores.length) {
       return 0;
     }
 
-    const nomeCavaloVencedor = vencedor.cavalo.nome.toLowerCase();
-
-    // Busca o apostador pelo ID
-    const apostador = await this.apostadorRepository.findOne({
-      where: { id: apostadorId },
+    const rodadasEspecificas = await this.vencedorRodadaRepository.find({
+      where: { campeonatoId },
     });
-
-    if (!apostador) {
-      return 0;
-    }
+    const rodadasIgnoradas = new Set(
+      rodadasEspecificas.map(rodada => rodada.nomeRodada.trim().toLowerCase()),
+    );
 
     // Busca todas as apostas do apostador no campeonato com pareos e cavalos carregados
     const apostas = await this.apostaRepository
@@ -146,23 +195,27 @@ export class SaldoService {
       .andWhere('aposta.apostadorId = :apostadorId', { apostadorId })
       .getMany();
 
-    // Filtra apostas onde o pareo tem algum cavalo com o mesmo nome do cavalo vencedor (case-insensitive)
+    const nomesCavalosVencedoresSet = new Set(nomesCavalosVencedores);
+
     const apostasVencedoras = apostas.filter(aposta => {
       if (!aposta.pareo || !aposta.pareo.cavalos) return false;
-      return aposta.pareo.cavalos.some(
-        cavalo => cavalo.nome.toLowerCase() === nomeCavaloVencedor
-      );
+
+      const nomeRodada = aposta.nomeRodada?.trim().toLowerCase();
+      if (nomeRodada && rodadasIgnoradas.has(nomeRodada)) {
+        return false;
+      }
+
+      return aposta.pareo.cavalos.some(cavalo => {
+        const nomeCavalo = cavalo.nome?.trim().toLowerCase();
+        return nomeCavalo ? nomesCavalosVencedoresSet.has(nomeCavalo) : false;
+      });
     });
 
-    // Soma os valores dos prêmios das apostas vencedoras (proporcional à porcentagemPremio)
-    const totalPremiosVencidos = apostasVencedoras.reduce(
-      (sum, aposta) => {
-        // Calcula o valor proporcional baseado na porcentagem do apostador
-        const valorPremioProporcional = Number(aposta.valorPremio || 0) * (Number(aposta.porcentagemPremio || 0) / 100);
-        return sum + valorPremioProporcional;
-      },
-      0
-    );
+    const totalPremiosVencidos = apostasVencedoras.reduce((sum, aposta) => {
+      const valorPremioProporcional =
+        Number(aposta.valorPremio || 0) * (Number(aposta.porcentagemPremio || 0) / 100);
+      return sum + valorPremioProporcional;
+    }, 0);
 
     return totalPremiosVencidos;
   }
