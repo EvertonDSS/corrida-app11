@@ -139,6 +139,62 @@ export class PareoService {
     });
   }
 
+  async atualizarCavalos(
+    campeonatoId: number,
+    tipoRodadaId: number,
+    cavalosAtualizados: Array<{ pareoId: number; id: number; nome?: string }>,
+  ): Promise<Pareo[]> {
+    if (!cavalosAtualizados.length) {
+      throw new NotFoundException('Nenhum cavalo enviado para atualização.');
+    }
+
+    const pareoIds = Array.from(new Set(cavalosAtualizados.map(c => c.pareoId)));
+
+    const pareos = await this.pareoRepository.find({
+      where: { campeonatoId, tipoRodadaId, id: In(pareoIds) },
+      relations: ['cavalos'],
+    });
+
+    if (!pareos.length) {
+      throw new NotFoundException(
+        `Nenhum páreo encontrado para campeonato ${campeonatoId} e tipo de rodada ${tipoRodadaId}.`,
+      );
+    }
+
+    const pareosMap = new Map<number, Pareo>();
+    pareos.forEach(pareo => pareosMap.set(pareo.id, pareo));
+
+    for (const cavaloDto of cavalosAtualizados) {
+      const pareo = pareosMap.get(cavaloDto.pareoId);
+
+      if (!pareo || pareo.campeonatoId !== campeonatoId || pareo.tipoRodadaId !== tipoRodadaId) {
+        throw new NotFoundException(
+          `Páreo ${cavaloDto.pareoId} não encontrado no campeonato ${campeonatoId} e tipo ${tipoRodadaId}.`,
+        );
+      }
+
+      const cavalo = pareo.cavalos.find(c => c.id === cavaloDto.id);
+
+      if (!cavalo) {
+        throw new NotFoundException(
+          `Cavalo ${cavaloDto.id} não encontrado no páreo ${cavaloDto.pareoId}.`,
+        );
+      }
+
+      if (cavaloDto.nome && cavaloDto.nome.trim()) {
+        cavalo.nome = cavaloDto.nome.trim();
+      }
+    }
+
+    await this.cavaloRepository.save(pareos.flatMap(p => p.cavalos));
+
+    return this.pareoRepository.find({
+      where: { campeonatoId, tipoRodadaId },
+      relations: ['cavalos'],
+      order: { numero: 'ASC' },
+    });
+  }
+
   async removerCavalo(campeonatoId: number, tipoRodadaId: number, numeroPareo: string, nomeCavalo: string): Promise<any> {
     // Normaliza o nome do cavalo
     const nomeCavaloNormalizado = nomeCavalo.trim();

@@ -22,6 +22,7 @@ async function bootstrap() {
     .addTag('pareos-excluidos', 'Operações relacionadas a pareos excluídos')
     .addTag('apostas', 'Operações relacionadas a apostas')
     .addTag('apostadores', 'Operações relacionadas a apostadores')
+    .addTag('apostadores-combinados', 'Apostadores que combinaram apostas')
     .addTag('pdf', 'Geração de relatórios em PDF')
     .addTag('vencedores', 'Operações relacionadas a vencedores')
     .addTag('vencedores-rodada', 'Vencedores específicos por rodada')

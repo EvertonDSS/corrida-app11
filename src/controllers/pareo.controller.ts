@@ -1,7 +1,8 @@
-import { Controller, Post, Get, Body, Param, ParseIntPipe, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Req } from '@nestjs/common';
+import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PareoService } from '../services/pareo.service';
 import { RemoverCavaloDto } from '../dto/remover-cavalo.dto';
+import { AtualizarCavalosRodadaDto } from '../dto/atualizar-cavalos-rodada.dto';
 
 @ApiTags('pareos')
 @Controller('pareos')
@@ -180,5 +181,51 @@ export class PareoController {
       numeroPareo,
       removerCavaloDto.nomeCavalo
     );
+  }
+
+  @Put(':campeonatoId/:tipoRodadaId/cavalos')
+  @ApiOperation({
+    summary: 'Atualizar nomes de cavalos em pareos existentes',
+    description:
+      'Permite atualizar os nomes de cavalos específicos pertencentes a pareos de um campeonato e tipo de rodada.',
+  })
+  @ApiParam({
+    name: 'campeonatoId',
+    description: 'ID do campeonato',
+    example: 11,
+    type: 'integer',
+  })
+  @ApiParam({
+    name: 'tipoRodadaId',
+    description: 'ID do tipo de rodada',
+    example: 14,
+    type: 'integer',
+  })
+  @ApiBody({
+    type: AtualizarCavalosRodadaDto,
+    examples: {
+      exemplo: {
+        value: {
+          cavalos: [
+            {
+              pareoId: 262,
+              id: 325,
+              nome: 'LUIS STRAW HRZ',
+            },
+          ],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cavalos atualizados com sucesso.',
+  })
+  async atualizarCavalos(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+    @Param('tipoRodadaId', ParseIntPipe) tipoRodadaId: number,
+    @Body() body: AtualizarCavalosRodadaDto,
+  ): Promise<any> {
+    return this.pareoService.atualizarCavalos(campeonatoId, tipoRodadaId, body.cavalos);
   }
 }

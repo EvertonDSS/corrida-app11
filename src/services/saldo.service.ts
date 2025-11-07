@@ -104,6 +104,22 @@ export class SaldoService {
     };
   }
 
+  async obterSaldoCampeonatoNegativados(campeonatoId: number): Promise<any> {
+    const saldo = await this.obterSaldoCampeonato(campeonatoId);
+    return {
+      campeonato: saldo.campeonato,
+      apostadores: saldo.apostadores.filter((item: any) => item.saldoFinal < 0),
+    };
+  }
+
+  async obterSaldoCampeonatoPositivados(campeonatoId: number): Promise<any> {
+    const saldo = await this.obterSaldoCampeonato(campeonatoId);
+    return {
+      campeonato: saldo.campeonato,
+      apostadores: saldo.apostadores.filter((item: any) => item.saldoFinal > 0),
+    };
+  }
+
   async obterSaldoMultiplosCampeonatos(campeonatoIds: number[]): Promise<any> {
     const idsUnicos = Array.from(new Set(campeonatoIds.filter(id => typeof id === 'number')));
 
@@ -148,6 +164,22 @@ export class SaldoService {
     return {
       campeonatos: saldos.map(saldo => saldo.campeonato),
       apostadores: apostadoresAggregados,
+    };
+  }
+
+  async obterSaldoMultiplosCampeonatosNegativados(campeonatoIds: number[]): Promise<any> {
+    const saldo = await this.obterSaldoMultiplosCampeonatos(campeonatoIds);
+    return {
+      campeonatos: saldo.campeonatos,
+      apostadores: saldo.apostadores.filter((item: any) => item.saldoFinal < 0),
+    };
+  }
+
+  async obterSaldoMultiplosCampeonatosPositivados(campeonatoIds: number[]): Promise<any> {
+    const saldo = await this.obterSaldoMultiplosCampeonatos(campeonatoIds);
+    return {
+      campeonatos: saldo.campeonatos,
+      apostadores: saldo.apostadores.filter((item: any) => item.saldoFinal > 0),
     };
   }
 

@@ -43,6 +43,28 @@ export class SaldoController {
     return this.saldoService.obterSaldoCampeonato(campeonatoId);
   }
 
+  @Get('campeonato/:campeonatoId/negativados')
+  @ApiOperation({
+    summary: 'Saldo negativado do campeonato',
+    description: 'Retorna apenas os apostadores (incluindo CASA) com saldo final negativo para o campeonato informado.',
+  })
+  async obterSaldoCampeonatoNegativados(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+  ): Promise<any> {
+    return this.saldoService.obterSaldoCampeonatoNegativados(campeonatoId);
+  }
+
+  @Get('campeonato/:campeonatoId/positivados')
+  @ApiOperation({
+    summary: 'Saldo positivado do campeonato',
+    description: 'Retorna apenas os apostadores (incluindo CASA) com saldo final positivo para o campeonato informado.',
+  })
+  async obterSaldoCampeonatoPositivados(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+  ): Promise<any> {
+    return this.saldoService.obterSaldoCampeonatoPositivados(campeonatoId);
+  }
+
   @Post('campeonatos')
   @ApiOperation({
     summary: 'Saldo consolidado de múltiplos campeonatos',
@@ -90,6 +112,28 @@ export class SaldoController {
     @Body() body: ObterSaldosMultiplosDto,
   ): Promise<any> {
     return this.saldoService.obterSaldoMultiplosCampeonatos(body.campeonatosIds);
+  }
+
+  @Post('campeonatos/negativados')
+  @ApiOperation({
+    summary: 'Saldo negativado consolidado de múltiplos campeonatos',
+    description: 'Recebe uma lista de campeonatos e retorna apenas os apostadores (incluindo CASA) com saldo final negativo.',
+  })
+  async obterSaldoMultiplosNegativados(
+    @Body() body: ObterSaldosMultiplosDto,
+  ): Promise<any> {
+    return this.saldoService.obterSaldoMultiplosCampeonatosNegativados(body.campeonatosIds);
+  }
+
+  @Post('campeonatos/positivados')
+  @ApiOperation({
+    summary: 'Saldo positivado consolidado de múltiplos campeonatos',
+    description: 'Recebe uma lista de campeonatos e retorna apenas os apostadores (incluindo CASA) com saldo final positivo.',
+  })
+  async obterSaldoMultiplosPositivados(
+    @Body() body: ObterSaldosMultiplosDto,
+  ): Promise<any> {
+    return this.saldoService.obterSaldoMultiplosCampeonatosPositivados(body.campeonatosIds);
   }
 }
 

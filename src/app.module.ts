@@ -43,17 +43,20 @@ import { VencedorRodada } from './entities/vencedor-rodada.entity';
 import { VencedorRodadaController } from './controllers/vencedor-rodada.controller';
 import { VencedorRodadaService } from './services/vencedor-rodada.service';
 import { ApostaRodadaController } from './controllers/aposta-rodada.controller';
+import { ApostadorCombinado } from './entities/apostador-combinado.entity';
+import { ApostadorCombinadoController } from './controllers/apostador-combinado.controller';
+import { ApostadorCombinadoService } from './services/apostador-combinado.service';
 import { getDatabaseConfig } from './config/database.config';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
       ...getDatabaseConfig(),
-      entities: [Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel, Vencedor, VencedorRodada],
+      entities: [Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel, Vencedor, VencedorRodada, ApostadorCombinado],
     }),
-    TypeOrmModule.forFeature([Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel, Vencedor, VencedorRodada]),
+    TypeOrmModule.forFeature([Campeonato, TipoRodada, Pareo, Cavalo, Aposta, Apostador, PareoExcluido, RodadaCasa, GanhadorPossivel, Vencedor, VencedorRodada, ApostadorCombinado]),
   ],
-  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController, TiposRodadasController, SaldoController, RodadaCasaController, RodadasCavalosController, GanhadorPossivelController, VencedorController, RodadaController, VencedorRodadaController, ApostaRodadaController],
-  providers: [AppService, CampeonatoService, TipoRodadaService, ApostaService, PdfService, PareoService, PareoExcluidoService, ApostadorService, SaldoService, RodadaCasaService, GanhadorPossivelService, VencedorService, RodadaService, VencedorRodadaService],
+  controllers: [AppController, CampeonatoController, TipoRodadaController, ApostaController, PdfController, PareoController, PareoExcluidoController, ApostadorController, PareosCavalosController, TiposRodadasController, SaldoController, RodadaCasaController, RodadasCavalosController, GanhadorPossivelController, VencedorController, RodadaController, VencedorRodadaController, ApostaRodadaController, ApostadorCombinadoController],
+  providers: [AppService, CampeonatoService, TipoRodadaService, ApostaService, PdfService, PareoService, PareoExcluidoService, ApostadorService, SaldoService, RodadaCasaService, GanhadorPossivelService, VencedorService, RodadaService, VencedorRodadaService, ApostadorCombinadoService],
 })
 export class AppModule {}

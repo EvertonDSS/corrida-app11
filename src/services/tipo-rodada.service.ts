@@ -39,6 +39,24 @@ export class TipoRodadaService {
     return tipoRodada;
   }
 
+  async atualizarNome(id: number, nome: string): Promise<TipoRodada> {
+    const tipoRodada = await this.findOne(id);
+
+    const nomeNormalizado = nome.trim();
+
+    const existente = await this.tipoRodadaRepository.findOne({
+      where: { nome: nomeNormalizado },
+    });
+
+    if (existente && existente.id !== id) {
+      throw new ConflictException('Já existe um tipo de rodada com este nome');
+    }
+
+    tipoRodada.nome = nomeNormalizado;
+
+    return await this.tipoRodadaRepository.save(tipoRodada);
+  }
+
   async remove(id: number): Promise<void> {
     const tipoRodada = await this.findOne(id); // Verifica se existe
     await this.tipoRodadaRepository.delete(id);

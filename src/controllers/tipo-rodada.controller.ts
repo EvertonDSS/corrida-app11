@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Delete, Body, Param, ParseIntPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { TipoRodadaService } from '../services/tipo-rodada.service';
 import { TipoRodada } from '../entities/tipo-rodada.entity';
 import { CreateTipoRodadaDto } from '../dto/tipo-rodada.dto';
+import { UpdateTipoRodadaDto } from '../dto/update-tipo-rodada.dto';
 
 @ApiTags('tipos-rodada')
 @Controller('tipos-rodada')
@@ -109,6 +110,39 @@ export class TipoRodadaController {
   })
   async findOne(@Param('id', ParseIntPipe) id: number): Promise<TipoRodada> {
     return await this.tipoRodadaService.findOne(id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Atualizar nome do tipo de rodada',
+    description: 'Permite alterar apenas o nome de um tipo de rodada existente.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID do tipo de rodada a ser atualizado',
+    example: 14,
+    type: 'integer',
+  })
+  @ApiBody({
+    type: UpdateTipoRodadaDto,
+    examples: {
+      exemplo: {
+        value: {
+          nome: 'BOLÃO INDIVIDUAL',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Tipo de rodada atualizado com sucesso.',
+    type: TipoRodada,
+  })
+  async atualizarNome(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateTipoRodadaDto,
+  ): Promise<TipoRodada> {
+    return this.tipoRodadaService.atualizarNome(id, body.nome);
   }
 
   @Delete(':id')
