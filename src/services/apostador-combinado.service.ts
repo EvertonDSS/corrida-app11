@@ -50,16 +50,17 @@ export class ApostadorCombinadoService {
     existentes.forEach(item => existentesPorNome.set(this.normalizarNome(item.nomeApostador), item));
 
     const nomesProcessados = new Set<string>();
+    const gruposAfetados = new Set<string>();
     const registrosParaAtualizar: ApostadorCombinado[] = [];
     const registrosParaCriar: ApostadorCombinado[] = [];
 
     for (const grupo of gruposNormalizados) {
       const identificadorGerado = this.gerarIdentificadorGrupo(grupo.nomes);
+      const identificadorExistente = this.obterIdentificadorExistente(grupo.nomes, existentesPorNome);
       let grupoIdentificador =
-        grupo.identificador ||
-        this.obterIdentificadorExistente(grupo.nomes, existentesPorNome) ||
-        identificadorGerado ||
-        randomUUID();
+        grupo.identificador || identificadorExistente || identificadorGerado || randomUUID();
+
+      gruposAfetados.add(grupoIdentificador);
 
       for (const nome of grupo.nomes) {
         const chave = this.normalizarNome(nome);
@@ -70,6 +71,7 @@ export class ApostadorCombinadoService {
 
         const existente = existentesPorNome.get(chave);
         if (existente) {
+          gruposAfetados.add(existente.grupoIdentificador);
           if (
             existente.grupoIdentificador !== grupoIdentificador ||
             existente.nomeApostador.trim() !== nome
@@ -90,9 +92,12 @@ export class ApostadorCombinadoService {
       }
     }
 
-    const registrosParaRemover = existentes.filter(
-      existente => !nomesProcessados.has(this.normalizarNome(existente.nomeApostador)),
-    );
+    const registrosParaRemover = existentes.filter(existente => {
+      if (!gruposAfetados.has(existente.grupoIdentificador)) {
+        return false;
+      }
+      return !nomesProcessados.has(this.normalizarNome(existente.nomeApostador));
+    });
 
     if (registrosParaRemover.length) {
       await this.apostadorCombinadoRepository.remove(registrosParaRemover);
@@ -316,6 +321,83 @@ export class ApostadorCombinadoService {
 
     return {
       grupoIdentificador: combinacao.grupoIdentificador,
+      apostadores: apostadoresCompletos,
+      ...detalhesSemApostadores,
+    };
+  }
+
+  async obterDetalhesGrupo(
+    campeonatoId: number,
+    grupoIdentificador: string,
+  ): Promise<{
+    grupoIdentificador: string;
+    apostadores: Array<{ id: number | null; nome: string; createdAt: Date | null; updatedAt: Date | null }>;
+    apostasPorRodada: Array<{
+      nomeRodada: string;
+      tipoRodada: any;
+      apostas: any[];
+      totalRodada: number;
+      totalRodadaCalculado: boolean;
+    }>;
+    totalApostado: number;
+    totalPremio: number;
+    totalApostas: number;
+    totalRodadas: number;
+    pareosExcluidos: any[];
+  }> {
+    const registrosGrupo = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId, grupoIdentificador },
+      order: { nomeApostador: 'ASC' },
+    });
+
+    if (!registrosGrupo.length) {
+      throw new NotFoundException(
+        `Grupo identificado por "${grupoIdentificador}" não encontrado no campeonato ${campeonatoId}.`,
+      );
+    }
+
+    const nomesGrupo = registrosGrupo
+      .map(registro => registro.nomeApostador?.trim())
+      .filter((nome): nome is string => !!nome);
+
+    const nomesNormalizados = nomesGrupo.map(nome => this.normalizarNome(nome));
+
+    const apostasDoGrupo = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalo')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('LOWER(TRIM(apostador.nome)) IN (:...nomes)', {
+        nomes: nomesNormalizados,
+      })
+      .orderBy('aposta.nomeRodada', 'ASC')
+      .addOrderBy('aposta.tipoRodadaId', 'ASC')
+      .addOrderBy('aposta.id', 'ASC')
+      .getMany();
+
+    const detalhes = await this.processarDetalhesGrupo(campeonatoId, apostasDoGrupo);
+    const { apostadores: apostadoresDetalhes, ...detalhesSemApostadores } = detalhes;
+
+    const apostadoresPorNome = new Map(
+      apostadoresDetalhes.map(apostador => [this.normalizarNome(apostador.nome), apostador]),
+    );
+
+    const apostadoresCompletos = registrosGrupo.map(registro => {
+      const chave = this.normalizarNome(registro.nomeApostador);
+      return (
+        apostadoresPorNome.get(chave) ?? {
+          id: null,
+          nome: registro.nomeApostador,
+          createdAt: null,
+          updatedAt: null,
+        }
+      );
+    });
+
+    return {
+      grupoIdentificador,
       apostadores: apostadoresCompletos,
       ...detalhesSemApostadores,
     };

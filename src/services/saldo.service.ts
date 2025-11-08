@@ -7,6 +7,7 @@ import { Apostador } from '../entities/apostador.entity';
 import { Vencedor } from '../entities/vencedor.entity';
 import { RodadaCasa } from '../entities/rodada-casa.entity';
 import { VencedorRodada } from '../entities/vencedor-rodada.entity';
+import { ApostadorCombinado } from '../entities/apostador-combinado.entity';
 
 @Injectable()
 export class SaldoService {
@@ -23,6 +24,8 @@ export class SaldoService {
     private readonly rodadaCasaRepository: Repository<RodadaCasa>,
     @InjectRepository(VencedorRodada)
     private readonly vencedorRodadaRepository: Repository<VencedorRodada>,
+    @InjectRepository(ApostadorCombinado)
+    private readonly apostadorCombinadoRepository: Repository<ApostadorCombinado>,
   ) {}
 
   async obterSaldoCampeonato(campeonatoId: number): Promise<any> {
@@ -50,28 +53,57 @@ export class SaldoService {
           .getMany()
       : [];
 
-    const itens = await Promise.all(
-      apostadores.map(async (apostador) => {
-        const apostas = await this.apostaRepository.find({
-          where: { campeonatoId, apostadorId: apostador.id },
-        });
+    const combinadosMap = await this.obterGruposCombinados(campeonatoId);
+    const itensMap = new Map<
+      string,
+      {
+        nome: string;
+        integrantes?: string[];
+        totalApostado: number;
+        totalPremiosVencidosBruto: number;
+      }
+    >();
 
-        const totalApostado = apostas.reduce((sum, aposta) => sum + this.calcularValorRealApostado(aposta), 0);
-        const totalPremiosVencidosBruto = await this.calcularTotalPremiosVencidos(apostador.id, campeonatoId);
-        // Arredonda para baixo: 573.75 -> 573
-        const totalPremiosVencidos = Math.floor(totalPremiosVencidosBruto);
-        const saldoFinalBruto = totalPremiosVencidos - totalApostado;
-        // Arredonda para baixo: positivos (573.75 -> 573), negativos (-573.75 -> -574)
-        const saldoFinal = Math.floor(saldoFinalBruto);
+    for (const apostador of apostadores) {
+      const apostas = await this.apostaRepository.find({
+        where: { campeonatoId, apostadorId: apostador.id },
+      });
 
-        return {
-          nome: apostador.nome,
-          totalApostado: Number(totalApostado.toFixed(2)),
-          totalPremiosVencidos: totalPremiosVencidos,
-          saldoFinal: saldoFinal,
-        };
-      })
-    );
+      const totalApostado = apostas.reduce((sum, aposta) => sum + this.calcularValorRealApostado(aposta), 0);
+      const totalPremiosVencidosBruto = await this.calcularTotalPremiosVencidos(apostador.id, campeonatoId);
+      const nomeNormalizado = this.normalizarNome(apostador.nome);
+      const grupo = combinadosMap.nomeParaGrupo.get(nomeNormalizado);
+      const chave = grupo ? `grupo:${grupo.identificador}` : `individual:${apostador.id}`;
+      const nomeExibicao = grupo ? grupo.nomeExibicao : apostador.nome;
+      const integrantes = grupo ? [...grupo.nomes] : undefined;
+
+      const existente = itensMap.get(chave) ?? {
+        nome: nomeExibicao,
+        integrantes,
+        totalApostado: 0,
+        totalPremiosVencidosBruto: 0,
+      };
+
+      existente.totalApostado += totalApostado;
+      existente.totalPremiosVencidosBruto += totalPremiosVencidosBruto;
+
+      itensMap.set(chave, existente);
+    }
+
+    const itens = Array.from(itensMap.values()).map(item => {
+      const totalApostado = Number(item.totalApostado.toFixed(2));
+      const totalPremiosVencidos = Math.floor(item.totalPremiosVencidosBruto);
+      const saldoFinalBruto = totalPremiosVencidos - totalApostado;
+      const saldoFinal = Math.floor(saldoFinalBruto);
+
+      return {
+        nome: item.nome,
+        ...(item.integrantes ? { integrantes: item.integrantes } : {}),
+        totalApostado,
+        totalPremiosVencidos,
+        saldoFinal,
+      };
+    });
 
     // Busca e calcula o valor total da CASA
     const rodadasCasa = await this.rodadaCasaRepository.find({
@@ -250,6 +282,86 @@ export class SaldoService {
     }, 0);
 
     return totalPremiosVencidos;
+  }
+
+  private async obterGruposCombinados(
+    campeonatoId: number,
+  ): Promise<{
+    nomeParaGrupo: Map<
+      string,
+      {
+        identificador: string;
+        nomeExibicao: string;
+        nomes: string[];
+      }
+    >;
+  }> {
+    const combinados = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
+    });
+
+    const gruposPorIdentificador = new Map<
+      string,
+      {
+        identificador: string;
+        nomes: string[];
+        nomesNormalizados: Set<string>;
+        nomeExibicao: string;
+      }
+    >();
+
+    combinados.forEach(registro => {
+      const identificador = registro.grupoIdentificador;
+      const nome = registro.nomeApostador?.trim();
+      if (!identificador || !nome) {
+        return;
+      }
+
+      if (!gruposPorIdentificador.has(identificador)) {
+        gruposPorIdentificador.set(identificador, {
+          identificador,
+          nomes: [],
+          nomesNormalizados: new Set<string>(),
+          nomeExibicao: '',
+        });
+      }
+
+      const grupo = gruposPorIdentificador.get(identificador)!;
+      const nomeNormalizado = this.normalizarNome(nome);
+      if (!grupo.nomesNormalizados.has(nomeNormalizado)) {
+        grupo.nomes.push(nome);
+        grupo.nomesNormalizados.add(nomeNormalizado);
+      }
+    });
+
+    const nomeParaGrupo = new Map<
+      string,
+      {
+        identificador: string;
+        nomeExibicao: string;
+        nomes: string[];
+      }
+    >();
+
+    for (const grupo of gruposPorIdentificador.values()) {
+      grupo.nomes.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      grupo.nomeExibicao = grupo.nomes.join('/');
+
+      for (const nome of grupo.nomes) {
+        nomeParaGrupo.set(this.normalizarNome(nome), {
+          identificador: grupo.identificador,
+          nomeExibicao: grupo.nomeExibicao,
+          nomes: [...grupo.nomes],
+        });
+      }
+    }
+
+    return { nomeParaGrupo };
+  }
+
+  private normalizarNome(nome: string): string {
+    return nome.trim().toLowerCase();
   }
 }
 

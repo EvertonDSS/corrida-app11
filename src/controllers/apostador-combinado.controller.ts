@@ -124,6 +124,40 @@ export class ApostadorCombinadoController {
   ): Promise<any> {
     return this.apostadorCombinadoService.obterDetalhesApostaCombinada(campeonatoId, apostaId);
   }
+
+  @Get(':campeonatoId/grupos/:grupoIdentificador')
+  @ApiOperation({
+    summary: 'Detalhes consolidados de um grupo combinado',
+    description:
+      'Retorna as apostas do grupo combinado informado (semelhante ao endpoint pdf/dados), agregando as apostas dos apostadores pertencentes ao grupo.',
+  })
+  @ApiParam({
+    name: 'campeonatoId',
+    description: 'ID do campeonato',
+    example: 12,
+    type: 'integer',
+  })
+  @ApiParam({
+    name: 'grupoIdentificador',
+    description: 'Identificador do grupo combinado. Caso tenha sido gerado automaticamente, utilize o valor retornado pelos endpoints de combinados.',
+    example: 'grupo-joias__zeus',
+    type: 'string',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalhes do grupo retornados com sucesso.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Grupo não encontrado para o campeonato informado.',
+  })
+  async obterDetalhesGrupo(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+    @Param('grupoIdentificador') grupoIdentificadorParam: string,
+  ): Promise<any> {
+    const grupoIdentificador = decodeURIComponent(grupoIdentificadorParam).trim();
+    return this.apostadorCombinadoService.obterDetalhesGrupo(campeonatoId, grupoIdentificador);
+  }
 }
 
 
