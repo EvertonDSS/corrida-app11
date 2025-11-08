@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Aposta } from '../entities/aposta.entity';
 import { Apostador } from '../entities/apostador.entity';
 import { Pareo } from '../entities/pareo.entity';
+import { VencedorRodada } from '../entities/vencedor-rodada.entity';
 
 @Injectable()
 export class ApostaService {
@@ -14,6 +15,8 @@ export class ApostaService {
     private apostadorRepository: Repository<Apostador>,
     @InjectRepository(Pareo)
     private pareoRepository: Repository<Pareo>,
+    @InjectRepository(VencedorRodada)
+    private vencedorRodadaRepository: Repository<VencedorRodada>,
   ) {}
 
   async salvarApostas(campeonatoId: number, tipoRodadaId: number, texto: string): Promise<any> {
@@ -363,6 +366,53 @@ export class ApostaService {
       relations: ['apostador', 'pareo', 'tipoRodada'],
       order: { id: 'ASC' },
     });
+  }
+
+  async removerApostasRodada(
+    campeonatoId: number,
+    tipoRodadaId: number,
+    nomeRodada: string,
+  ): Promise<{
+    campeonatoId: number;
+    tipoRodadaId: number;
+    nomeRodada: string;
+    apostasRemovidas: number;
+    vencedoresRodadaRemovidos: number;
+  }> {
+    const nomeRodadaNormalizado = nomeRodada.trim();
+
+    if (!nomeRodadaNormalizado) {
+      throw new BadRequestException('O nome da rodada é obrigatório para exclusão.');
+    }
+
+    const resultadoRemocaoApostas = await this.apostaRepository.delete({
+      campeonatoId,
+      tipoRodadaId,
+      nomeRodada: nomeRodadaNormalizado,
+    });
+
+    const apostasRemovidas = resultadoRemocaoApostas.affected ?? 0;
+
+    if (!apostasRemovidas) {
+      throw new NotFoundException(
+        `Nenhuma aposta encontrada para o campeonato ${campeonatoId}, tipo ${tipoRodadaId} e rodada ${nomeRodadaNormalizado}.`,
+      );
+    }
+
+    const resultadoRemocaoVencedorRodada = await this.vencedorRodadaRepository.delete({
+      campeonatoId,
+      nomeRodada: nomeRodadaNormalizado,
+    });
+
+    const vencedoresRodadaRemovidos = resultadoRemocaoVencedorRodada.affected ?? 0;
+
+    return {
+      campeonatoId,
+      tipoRodadaId,
+      nomeRodada: nomeRodadaNormalizado,
+      apostasRemovidas,
+      vencedoresRodadaRemovidos,
+    };
   }
 
   async findByCampeonato(campeonatoId: number): Promise<Aposta[]> {

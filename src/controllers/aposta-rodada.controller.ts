@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApostaService } from '../services/aposta.service';
 import { BuscarApostasRodadaDto } from '../dto/buscar-apostas-rodada.dto';
@@ -175,6 +175,62 @@ export class ApostaRodadaController {
       valorOriginalPremio: aposta.valorOriginalPremio,
       porcentagemRetirada: aposta.porcentagemRetirada,
     }));
+  }
+
+  @Delete('rodadas/:campeonatoId/:tipoRodadaId')
+  @ApiOperation({
+    summary: 'Excluir uma rodada completa',
+    description:
+      'Remove todas as apostas e vencedores de rodada associados a um campeonato, tipo de rodada e nome de rodada informados no corpo da requisição.',
+  })
+  @ApiParam({
+    name: 'campeonatoId',
+    description: 'ID do campeonato',
+    example: 1,
+    type: 'integer',
+  })
+  @ApiParam({
+    name: 'tipoRodadaId',
+    description: 'ID do tipo de rodada',
+    example: 12,
+    type: 'integer',
+  })
+  @ApiBody({
+    type: BuscarApostasRodadaDto,
+    examples: {
+      exemplo: {
+        value: {
+          nomeRodada: 'RODADA - 03',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Rodada excluída com sucesso.',
+    schema: {
+      example: {
+        campeonatoId: 11,
+        tipoRodadaId: 14,
+        nomeRodada: 'RODADA - 03',
+        apostasRemovidas: 8,
+        vencedoresRodadaRemovidos: 1,
+      },
+    },
+  })
+  async removerRodadaCompleta(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+    @Param('tipoRodadaId', ParseIntPipe) tipoRodadaId: number,
+    @Body() body: BuscarApostasRodadaDto,
+  ): Promise<{
+    campeonatoId: number;
+    tipoRodadaId: number;
+    nomeRodada: string;
+    apostasRemovidas: number;
+    vencedoresRodadaRemovidos: number;
+  }> {
+    const nomeRodada = body.nomeRodada.trim();
+    return this.apostaService.removerApostasRodada(campeonatoId, tipoRodadaId, nomeRodada);
   }
 }
 

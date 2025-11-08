@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Delete, Body, Param, ParseIntPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CampeonatoService } from '../services/campeonato.service';
 import { Campeonato } from '../entities/campeonato.entity';
 import { CreateCampeonatoDto } from '../dto/campeonato.dto';
@@ -122,12 +122,26 @@ export class CampeonatoController {
     example: 1,
     type: 'integer'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Campeonato deletado com sucesso.',
-    example: {
-      message: 'Campeonato deleted successfully'
-    }
+    schema: {
+      example: {
+        message: 'Campeonato "Campeonato Brasileiro 2024" e todos os dados relacionados foram removidos com sucesso.',
+        resumo: {
+          apostas: 120,
+          ganhadoresPossiveis: 16,
+          vencedores: 2,
+          vencedoresRodada: 5,
+          apostadoresCombinados: 4,
+          rodadasCasa: 3,
+          pareosExcluidos: 6,
+          cavalos: 48,
+          pareos: 12,
+          campeonatos: 1,
+        },
+      },
+    },
   })
   @ApiResponse({ 
     status: 404, 
@@ -138,7 +152,9 @@ export class CampeonatoController {
       error: 'Not Found'
     }
   })
-  async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+  async remove(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ message: string; resumo: Record<string, number> }> {
     return await this.campeonatoService.remove(id);
   }
 }
