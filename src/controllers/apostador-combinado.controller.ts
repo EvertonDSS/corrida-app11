@@ -2,7 +2,6 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApostadorCombinadoService } from '../services/apostador-combinado.service';
 import { DefinirApostadoresCombinadosDto } from '../dto/definir-apostadores-combinados.dto';
-import { ApostadorCombinado } from '../entities/apostador-combinado.entity';
 
 @ApiTags('apostadores-combinados')
 @Controller('apostadores-combinados')
@@ -23,7 +22,20 @@ export class ApostadorCombinadoController {
   @ApiBody({
     type: DefinirApostadoresCombinadosDto,
     examples: {
-      exemplo: {
+      grupos: {
+        value: {
+          grupos: [
+            {
+              identificador: 'grupo-zezinho',
+              nomes: ['Zezinho', 'Zezeca'],
+            },
+            {
+              nomes: ['Zeca', 'Zeze'],
+            },
+          ],
+        },
+      },
+      unicoGrupo: {
         value: {
           nomesApostadores: ['Grupo Jóias', 'Zeus'],
         },
@@ -37,8 +49,8 @@ export class ApostadorCombinadoController {
   async definirCombinados(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
     @Body() body: DefinirApostadoresCombinadosDto,
-  ): Promise<ApostadorCombinado[]> {
-    return this.apostadorCombinadoService.definirCombinados(campeonatoId, body.nomesApostadores);
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
+    return this.apostadorCombinadoService.definirCombinados(campeonatoId, body);
   }
 
   @Get(':campeonatoId')
@@ -58,7 +70,7 @@ export class ApostadorCombinadoController {
   })
   async listarCombinados(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-  ): Promise<ApostadorCombinado[]> {
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
     return this.apostadorCombinadoService.listarPorCampeonato(campeonatoId);
   }
 
@@ -80,7 +92,7 @@ export class ApostadorCombinadoController {
   })
   async listarApostasCombinadas(
     @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
-  ): Promise<Record<string, any[]>> {
+  ): Promise<any> {
     return this.apostadorCombinadoService.listarApostasCombinadas(campeonatoId);
   }
 

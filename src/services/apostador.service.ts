@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Apostador } from '../entities/apostador.entity';
 import { Aposta } from '../entities/aposta.entity';
+import { ApostadorCombinado } from '../entities/apostador-combinado.entity';
 
 @Injectable()
 export class ApostadorService {
@@ -11,6 +12,8 @@ export class ApostadorService {
     private apostadorRepository: Repository<Apostador>,
     @InjectRepository(Aposta)
     private apostaRepository: Repository<Aposta>,
+    @InjectRepository(ApostadorCombinado)
+    private apostadorCombinadoRepository: Repository<ApostadorCombinado>,
   ) {}
 
   async findAll(): Promise<Apostador[]> {
@@ -94,6 +97,225 @@ export class ApostadorService {
     );
 
     return apostadoresComEstatisticas;
+  }
+
+  async obterResumoApostadoresCombinados(
+    campeonatoId: number,
+  ): Promise<{
+    campeonatoId: number;
+    totalApostadores: number;
+    apostadores: Array<{
+      tipo: 'grupo' | 'individual';
+      grupoIdentificador?: string;
+      apostadorId?: number | null;
+      nome: string;
+      integrantes?: string[];
+      totalApostado: number;
+      totalPremio: number;
+      totalApostas: number;
+      primeiraAposta: Date | null;
+      ultimaAposta: Date | null;
+      createdAt: Date | null;
+      updatedAt: Date | null;
+    }>;
+  }> {
+    const participantes = await this.calcularResumoApostadoresCombinados(campeonatoId);
+
+    return {
+      campeonatoId,
+      totalApostadores: participantes.length,
+      apostadores: participantes,
+    };
+  }
+
+  private async calcularResumoApostadoresCombinados(
+    campeonatoId: number,
+  ): Promise<
+    Array<{
+      tipo: 'grupo' | 'individual';
+      grupoIdentificador?: string;
+      apostadorId?: number | null;
+      nome: string;
+      integrantes?: string[];
+      totalApostado: number;
+      totalPremio: number;
+      totalApostas: number;
+      primeiraAposta: Date | null;
+      ultimaAposta: Date | null;
+      createdAt: Date | null;
+      updatedAt: Date | null;
+    }>
+  > {
+    const combinados = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
+    });
+
+    const gruposPorIdentificador = new Map<
+      string,
+      {
+        identificador: string;
+        nomes: string[];
+        nomesNormalizados: Set<string>;
+        nomeExibicao: string;
+      }
+    >();
+
+    combinados.forEach(registro => {
+      const identificador = registro.grupoIdentificador;
+      const nome = registro.nomeApostador?.trim();
+      if (!nome) {
+        return;
+      }
+      if (!gruposPorIdentificador.has(identificador)) {
+        gruposPorIdentificador.set(identificador, {
+          identificador,
+          nomes: [],
+          nomesNormalizados: new Set<string>(),
+          nomeExibicao: '',
+        });
+      }
+      const grupo = gruposPorIdentificador.get(identificador)!;
+      const nomeNormalizado = this.normalizarNome(nome);
+      if (!grupo.nomesNormalizados.has(nomeNormalizado)) {
+        grupo.nomes.push(nome);
+        grupo.nomesNormalizados.add(nomeNormalizado);
+      }
+    });
+
+    const nomeParaGrupo = new Map<
+      string,
+      {
+        identificador: string;
+        nomes: string[];
+        nomeExibicao: string;
+      }
+    >();
+
+    for (const grupo of gruposPorIdentificador.values()) {
+      grupo.nomes.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      grupo.nomeExibicao = grupo.nomes.join('/');
+      for (const nome of grupo.nomes) {
+        nomeParaGrupo.set(this.normalizarNome(nome), {
+          identificador: grupo.identificador,
+          nomes: grupo.nomes,
+          nomeExibicao: grupo.nomeExibicao,
+        });
+      }
+    }
+
+    const apostas = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('aposta.valorPremio > 0')
+      .andWhere('aposta.valor > 0')
+      .orderBy('aposta.createdAt', 'ASC')
+      .getMany();
+
+    if (!apostas.length) {
+      return [];
+    }
+
+    type ResumoParticipante = {
+      tipo: 'grupo' | 'individual';
+      grupoIdentificador?: string;
+      apostadorId?: number | null;
+      nome: string;
+      integrantes?: string[];
+      totalApostado: number;
+      totalPremio: number;
+      totalApostas: number;
+      primeiraAposta: Date | null;
+      ultimaAposta: Date | null;
+      createdAt: Date | null;
+      updatedAt: Date | null;
+    };
+
+    const estatisticas = new Map<string, ResumoParticipante>();
+
+    for (const aposta of apostas) {
+      const apostador = aposta.apostador;
+      const nomeApostador = apostador?.nome?.trim();
+      if (!apostador || !nomeApostador) {
+        continue;
+      }
+
+      const nomeNormalizado = this.normalizarNome(nomeApostador);
+      const grupo = nomeParaGrupo.get(nomeNormalizado);
+
+      const chave = grupo ? `grupo:${grupo.identificador}` : `individual:${apostador.id}`;
+
+      if (!estatisticas.has(chave)) {
+        estatisticas.set(chave, {
+          tipo: grupo ? 'grupo' : 'individual',
+          grupoIdentificador: grupo ? grupo.identificador : undefined,
+          apostadorId: grupo ? null : apostador.id,
+          nome: grupo ? grupo.nomeExibicao : nomeApostador,
+          integrantes: grupo ? [...grupo.nomes] : undefined,
+          totalApostado: 0,
+          totalPremio: 0,
+          totalApostas: 0,
+          primeiraAposta: null,
+          ultimaAposta: null,
+          createdAt: apostador.createdAt ?? null,
+          updatedAt: apostador.updatedAt ?? null,
+        });
+      }
+
+      const resumo = estatisticas.get(chave)!;
+
+      const valorAposta = Number(aposta.valor) || 0;
+      const valorPremio = Number(aposta.valorPremio) || 0;
+
+      resumo.totalApostado += valorAposta;
+      resumo.totalPremio += valorPremio;
+      resumo.totalApostas += 1;
+
+      const dataCriacaoAposta = aposta.createdAt ?? null;
+      const dataAtualizacaoAposta = aposta.updatedAt ?? aposta.createdAt ?? null;
+
+      if (dataCriacaoAposta) {
+        if (!resumo.primeiraAposta || dataCriacaoAposta < resumo.primeiraAposta) {
+          resumo.primeiraAposta = dataCriacaoAposta;
+        }
+        if (!resumo.ultimaAposta || dataCriacaoAposta > resumo.ultimaAposta) {
+          resumo.ultimaAposta = dataCriacaoAposta;
+        }
+      }
+
+      if (dataAtualizacaoAposta) {
+        if (!resumo.updatedAt || dataAtualizacaoAposta > resumo.updatedAt) {
+          resumo.updatedAt = dataAtualizacaoAposta;
+        }
+      }
+
+      if (apostador.createdAt) {
+        if (!resumo.createdAt || apostador.createdAt < resumo.createdAt) {
+          resumo.createdAt = apostador.createdAt;
+        }
+      }
+
+      if (apostador.updatedAt) {
+        if (!resumo.updatedAt || apostador.updatedAt > resumo.updatedAt) {
+          resumo.updatedAt = apostador.updatedAt;
+        }
+      }
+    }
+
+    const participantes = Array.from(estatisticas.values()).map(participante => ({
+      ...participante,
+      totalApostado: Number(participante.totalApostado.toFixed(2)),
+      totalPremio: Number(participante.totalPremio.toFixed(2)),
+    }));
+
+    participantes.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+    return participantes;
+  }
+
+  private normalizarNome(nome: string): string {
+    return nome.trim().toLowerCase();
   }
 
   async renomearApostador(campeonatoId: number, nomeOriginal: string, novoNome: string): Promise<any> {

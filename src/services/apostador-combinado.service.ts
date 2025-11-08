@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { ApostadorCombinado } from '../entities/apostador-combinado.entity';
 import { Campeonato } from '../entities/campeonato.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { PareoExcluido } from '../entities/pareo-excluido.entity';
+import { DefinirApostadoresCombinadosDto, GrupoCombinadoDto } from '../dto/definir-apostadores-combinados.dto';
 
 @Injectable()
 export class ApostadorCombinadoService {
@@ -19,124 +21,219 @@ export class ApostadorCombinadoService {
     private readonly pareoExcluidoRepository: Repository<PareoExcluido>,
   ) {}
 
-  async definirCombinados(campeonatoId: number, nomesApostadores: string[]): Promise<ApostadorCombinado[]> {
+  async definirCombinados(
+    campeonatoId: number,
+    payload: DefinirApostadoresCombinadosDto,
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
     const campeonato = await this.campeonatoRepository.findOne({ where: { id: campeonatoId } });
 
     if (!campeonato) {
       throw new NotFoundException(`Campeonato ${campeonatoId} não encontrado.`);
     }
 
-    const nomesNormalizados = Array.from(
-      new Set(
-        nomesApostadores
-          .map(nome => nome?.trim())
-          .filter((nome): nome is string => !!nome),
-      ),
-    );
+    const gruposNormalizados = this.normalizarGruposEntrada(payload);
 
-    if (!nomesNormalizados.length) {
-      return this.apostadorCombinadoRepository.find({ where: { campeonatoId }, order: { nomeApostador: 'ASC' } });
+    if (!gruposNormalizados.length) {
+      const combinadosExistentes = await this.apostadorCombinadoRepository.find({
+        where: { campeonatoId },
+        order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
+      });
+
+      return this.agruparCombinados(combinadosExistentes);
     }
 
     const existentes = await this.apostadorCombinadoRepository.find({
       where: { campeonatoId },
     });
 
-    const existentesMap = new Map<string, ApostadorCombinado>();
-    existentes.forEach(item => existentesMap.set(item.nomeApostador.toLowerCase(), item));
+    const existentesPorNome = new Map<string, ApostadorCombinado>();
+    existentes.forEach(item => existentesPorNome.set(this.normalizarNome(item.nomeApostador), item));
 
-    const novosRegistros: ApostadorCombinado[] = [];
-    for (const nome of nomesNormalizados) {
-      const chave = nome.toLowerCase();
-      if (!existentesMap.has(chave)) {
-        const novo = this.apostadorCombinadoRepository.create({
-          campeonatoId,
-          nomeApostador: nome,
-        });
-        novosRegistros.push(novo);
+    const nomesProcessados = new Set<string>();
+    const registrosParaAtualizar: ApostadorCombinado[] = [];
+    const registrosParaCriar: ApostadorCombinado[] = [];
+
+    for (const grupo of gruposNormalizados) {
+      const identificadorGerado = this.gerarIdentificadorGrupo(grupo.nomes);
+      let grupoIdentificador =
+        grupo.identificador ||
+        this.obterIdentificadorExistente(grupo.nomes, existentesPorNome) ||
+        identificadorGerado ||
+        randomUUID();
+
+      for (const nome of grupo.nomes) {
+        const chave = this.normalizarNome(nome);
+        if (nomesProcessados.has(chave)) {
+          throw new BadRequestException(`O apostador "${nome}" foi informado em mais de um grupo combinado.`);
+        }
+        nomesProcessados.add(chave);
+
+        const existente = existentesPorNome.get(chave);
+        if (existente) {
+          if (
+            existente.grupoIdentificador !== grupoIdentificador ||
+            existente.nomeApostador.trim() !== nome
+          ) {
+            existente.grupoIdentificador = grupoIdentificador;
+            existente.nomeApostador = nome;
+            registrosParaAtualizar.push(existente);
+          }
+        } else {
+          registrosParaCriar.push(
+            this.apostadorCombinadoRepository.create({
+              campeonatoId,
+              nomeApostador: nome,
+              grupoIdentificador,
+            }),
+          );
+        }
       }
     }
 
-    if (novosRegistros.length) {
-      await this.apostadorCombinadoRepository.save(novosRegistros);
+    const registrosParaRemover = existentes.filter(
+      existente => !nomesProcessados.has(this.normalizarNome(existente.nomeApostador)),
+    );
+
+    if (registrosParaRemover.length) {
+      await this.apostadorCombinadoRepository.remove(registrosParaRemover);
     }
 
-    return this.apostadorCombinadoRepository.find({
+    if (registrosParaAtualizar.length) {
+      await this.apostadorCombinadoRepository.save(registrosParaAtualizar);
+    }
+
+    if (registrosParaCriar.length) {
+      await this.apostadorCombinadoRepository.save(registrosParaCriar);
+    }
+
+    const combinadosAtualizados = await this.apostadorCombinadoRepository.find({
       where: { campeonatoId },
-      order: { nomeApostador: 'ASC' },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
     });
+
+    return this.agruparCombinados(combinadosAtualizados);
   }
 
-  async listarPorCampeonato(campeonatoId: number): Promise<ApostadorCombinado[]> {
-    return this.apostadorCombinadoRepository.find({
-      where: { campeonatoId },
-      order: { nomeApostador: 'ASC' },
-    });
-  }
-
-  async listarApostasCombinadas(campeonatoId: number): Promise<Record<string, any[]>> {
+  async listarPorCampeonato(
+    campeonatoId: number,
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
     const combinados = await this.apostadorCombinadoRepository.find({
       where: { campeonatoId },
-      order: { nomeApostador: 'ASC' },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
+    });
+
+    return this.agruparCombinados(combinados);
+  }
+
+  async listarApostasCombinadas(
+    campeonatoId: number,
+  ): Promise<
+    Array<{
+      grupoIdentificador: string;
+      apostadores: Array<{ id: number | null; nome: string; createdAt: Date | null; updatedAt: Date | null }>;
+      apostasPorRodada: Array<{
+        nomeRodada: string;
+        tipoRodada: any;
+        apostas: any[];
+        totalRodada: number;
+        totalRodadaCalculado: boolean;
+      }>;
+      totalApostado: number;
+      totalPremio: number;
+      totalApostas: number;
+      totalRodadas: number;
+      pareosExcluidos: any[];
+    }>
+  > {
+    const combinados = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
     });
 
     if (!combinados.length) {
-      return {};
+      return [];
     }
 
-    const nomesNormalizados = combinados.map(item => item.nomeApostador.trim().toLowerCase());
+    const grupos = this.agruparCombinados(combinados);
+    const nomesNormalizados = new Set<string>();
+    grupos.forEach(grupo =>
+      grupo.apostadores.forEach(nome => nomesNormalizados.add(this.normalizarNome(nome))),
+    );
+
+    if (!nomesNormalizados.size) {
+      return grupos.map(grupo => ({
+        grupoIdentificador: grupo.grupoIdentificador,
+        apostadores: grupo.apostadores.map(nome => ({
+          id: null,
+          nome,
+          createdAt: null,
+          updatedAt: null,
+        })),
+        apostasPorRodada: [],
+        totalApostado: 0,
+        totalPremio: 0,
+        totalApostas: 0,
+        totalRodadas: 0,
+        pareosExcluidos: [],
+      }));
+    }
 
     const apostas = await this.apostaRepository
       .createQueryBuilder('aposta')
       .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
       .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalo')
       .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('LOWER(TRIM(apostador.nome)) IN (:...nomes)', {
+        nomes: Array.from(nomesNormalizados.values()),
+      })
       .getMany();
 
-    const resposta: Record<string, any[]> = {};
+    return Promise.all(
+      grupos.map(async grupo => {
+        const nomesGrupo = new Set(grupo.apostadores.map(nome => this.normalizarNome(nome)));
+        const apostasDoGrupo = apostas.filter(aposta => {
+          const nome = aposta.apostador?.nome;
+          if (!nome) {
+            return false;
+          }
+          return nomesGrupo.has(this.normalizarNome(nome));
+        });
 
-    apostas.forEach(aposta => {
-      const nomeApostador = aposta.apostador?.nome?.trim();
-      if (!nomeApostador) {
-        return;
-      }
-      const nomeNormalizado = nomeApostador.toLowerCase();
-      if (!nomesNormalizados.includes(nomeNormalizado)) {
-        return;
-      }
-
-      if (!resposta[nomeApostador]) {
-        resposta[nomeApostador] = [];
-      }
-
-      resposta[nomeApostador].push({
-        id: aposta.id,
-        tipoRodadaId: aposta.tipoRodadaId,
-        nomeRodada: aposta.nomeRodada,
-        pareo: aposta.pareo
-          ? {
-              id: aposta.pareo.id,
-              numero: aposta.pareo.numero,
+        const detalhes = await this.processarDetalhesGrupo(campeonatoId, apostasDoGrupo);
+        const { apostadores: apostadoresDetalhes, ...detalhesSemApostadores } = detalhes;
+        const apostadoresPorNome = new Map(
+          apostadoresDetalhes.map(apostador => [this.normalizarNome(apostador.nome), apostador]),
+        );
+        const apostadoresResposta = grupo.apostadores.map(nome => {
+          const chave = this.normalizarNome(nome);
+          const existente = apostadoresPorNome.get(chave);
+          return (
+            existente ?? {
+              id: null,
+              nome,
+              createdAt: null,
+              updatedAt: null,
             }
-          : null,
-        valor: aposta.valor,
-        valorOriginal: aposta.valorOriginal,
-        porcentagemAposta: aposta.porcentagemAposta,
-        porcentagemPremio: aposta.porcentagemPremio,
-        valorPremio: aposta.valorPremio,
-        valorOriginalPremio: aposta.valorOriginalPremio,
-        porcentagemRetirada: aposta.porcentagemRetirada,
-      });
-    });
+          );
+        });
 
-    return resposta;
+        return {
+          grupoIdentificador: grupo.grupoIdentificador,
+          apostadores: apostadoresResposta,
+          ...detalhesSemApostadores,
+        };
+      }),
+    );
   }
 
   async obterDetalhesApostaCombinada(
     campeonatoId: number,
     apostaId: number,
   ): Promise<{
-    apostadores: { id: number; nome: string; createdAt: Date; updatedAt: Date }[];
+    grupoIdentificador: string;
+    apostadores: Array<{ id: number | null; nome: string; createdAt: Date | null; updatedAt: Date | null }>;
     apostasPorRodada: Array<{
       nomeRodada: string;
       tipoRodada: any;
@@ -166,98 +263,61 @@ export class ApostadorCombinadoService {
       throw new NotFoundException(`Aposta ${apostaId} não possui apostador vinculado.`);
     }
 
-    const combinados = await this.apostadorCombinadoRepository.find({
-      where: { campeonatoId },
+    const combinacao = await this.apostadorCombinadoRepository.findOne({
+      where: { campeonatoId, nomeApostador: apostadorNome },
     });
 
-    const nomesCombinados = new Set(
-      combinados.map(item => item.nomeApostador.trim().toLowerCase()),
-    );
-
-    if (!nomesCombinados.has(apostadorNome.toLowerCase())) {
+    if (!combinacao) {
       throw new NotFoundException(
         `Apostador "${apostadorNome}" não está marcado como combinado no campeonato ${campeonatoId}.`,
       );
     }
 
-    const apostasDoApostador = await this.apostaRepository.find({
-      where: { campeonatoId, apostadorId: apostaBase.apostadorId },
-      relations: ['tipoRodada', 'apostador', 'pareo', 'pareo.cavalos'],
-      order: { nomeRodada: 'ASC' },
+    const integrantesDoGrupo = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId, grupoIdentificador: combinacao.grupoIdentificador },
+      order: { nomeApostador: 'ASC' },
     });
 
-    const apostasPorRodadaMap = new Map<
-      string,
-      {
-        nomeRodada: string;
-        tipoRodada: any;
-        apostas: Aposta[];
-      }
-    >();
+    const nomesGrupo = new Set(integrantesDoGrupo.map(item => this.normalizarNome(item.nomeApostador)));
 
-    let totalApostado = 0;
-    let totalPremio = 0;
+    const apostasDoGrupo = await this.apostaRepository
+      .createQueryBuilder('aposta')
+      .leftJoinAndSelect('aposta.apostador', 'apostador')
+      .leftJoinAndSelect('aposta.tipoRodada', 'tipoRodada')
+      .leftJoinAndSelect('aposta.pareo', 'pareo')
+      .leftJoinAndSelect('pareo.cavalos', 'cavalo')
+      .where('aposta.campeonatoId = :campeonatoId', { campeonatoId })
+      .andWhere('LOWER(TRIM(apostador.nome)) IN (:...nomes)', {
+        nomes: Array.from(nomesGrupo.values()),
+      })
+      .orderBy('aposta.nomeRodada', 'ASC')
+      .addOrderBy('aposta.tipoRodadaId', 'ASC')
+      .addOrderBy('aposta.id', 'ASC')
+      .getMany();
 
-    apostasDoApostador.forEach(aposta => {
-      const chaveRodada = `${aposta.nomeRodada}-${aposta.tipoRodadaId}`;
-      if (!apostasPorRodadaMap.has(chaveRodada)) {
-        apostasPorRodadaMap.set(chaveRodada, {
-          nomeRodada: aposta.nomeRodada,
-          tipoRodada: aposta.tipoRodada,
-          apostas: [],
-        });
-      }
+    const detalhes = await this.processarDetalhesGrupo(campeonatoId, apostasDoGrupo);
+    const { apostadores: apostadoresDetalhes, ...detalhesSemApostadores } = detalhes;
 
-      const grupoRodada = apostasPorRodadaMap.get(chaveRodada)!;
-
-      grupoRodada.apostas.push(aposta);
-      totalApostado += Number(aposta.valor || 0);
-      totalPremio += Number(aposta.valorPremio || 0);
-    });
-
-    const apostasPorRodada = Array.from(apostasPorRodadaMap.values()).map(rodada => {
-      const apostasFormatadas = rodada.apostas.map(aposta => this.formatarAposta(aposta));
-      const totalRodada = apostasFormatadas.reduce(
-        (sum, aposta) => sum + Number(aposta.valorPremio || 0),
-        0,
-      );
-
-      const tipoRodadaFormatada = rodada.tipoRodada
-        ? {
-            id: rodada.tipoRodada.id,
-            nome: rodada.tipoRodada.nome,
-            createdAt: rodada.tipoRodada.createdAt,
-            updatedAt: rodada.tipoRodada.updatedAt,
-          }
-        : null;
-
-      return {
-        nomeRodada: rodada.nomeRodada,
-        tipoRodada: tipoRodadaFormatada,
-        apostas: apostasFormatadas,
-        totalRodada: Number(totalRodada.toFixed(2)),
-        totalRodadaCalculado: true,
-      };
-    });
-
-    const rodadasChaves = apostasPorRodada.map(rodada => ({
-      nomeRodada: rodada.nomeRodada,
-      tipoRodadaId: rodada.tipoRodada?.id ?? rodada.apostas[0]?.tipoRodadaId,
-    }));
-
-    const pareosExcluidos = await this.obterPareosExcluidosDetalhados(
-      campeonatoId,
-      apostasDoApostador,
+    const apostadoresPorNome = new Map(
+      apostadoresDetalhes.map(apostador => [this.normalizarNome(apostador.nome), apostador]),
     );
 
+    const apostadoresCompletos = integrantesDoGrupo.map(registro => {
+      const chave = this.normalizarNome(registro.nomeApostador);
+      return (
+        apostadoresPorNome.get(chave) ?? {
+          id: null,
+          nome: registro.nomeApostador,
+          createdAt: null,
+          updatedAt: null,
+        }
+      );
+    });
+
     return {
-      apostadores: this.formatarApostadores(apostasDoApostador),
-      apostasPorRodada,
-      totalApostado: Number(totalApostado.toFixed(2)),
-      totalPremio: Number(totalPremio.toFixed(2)),
-      totalApostas: apostasDoApostador.length,
-      totalRodadas: apostasPorRodada.length,
-      pareosExcluidos,
+      grupoIdentificador: combinacao.grupoIdentificador,
+      apostadores: apostadoresCompletos,
+      ...detalhesSemApostadores,
     };
   }
 
@@ -270,10 +330,10 @@ export class ApostadorCombinadoService {
     }
 
     return Array.from(vistos.values()).map(apostador => ({
-      id: apostador!.id,
-      nome: apostador!.nome,
-      createdAt: apostador!.createdAt,
-      updatedAt: apostador!.updatedAt,
+      id: apostador?.id ?? null,
+      nome: apostador?.nome ?? '',
+      createdAt: apostador?.createdAt ?? null,
+      updatedAt: apostador?.updatedAt ?? null,
     }));
   }
 
@@ -393,6 +453,209 @@ export class ApostadorCombinadoService {
     }
 
     return resultado;
+  }
+
+  private normalizarNome(nome: string): string {
+    return nome.trim().toLowerCase();
+  }
+
+  private normalizarGruposEntrada(dto: DefinirApostadoresCombinadosDto): GrupoCombinadoDto[] {
+    const grupos: GrupoCombinadoDto[] = [];
+
+    if (dto.grupos?.length) {
+      for (const grupo of dto.grupos) {
+        const nomes = Array.from(
+          new Set(
+            (grupo.nomes || [])
+              .map(nome => nome?.trim())
+              .filter((nome): nome is string => !!nome),
+          ),
+        );
+
+        if (!nomes.length) {
+          continue;
+        }
+
+        grupos.push({
+          identificador: (grupo.identificador?.trim() || this.gerarIdentificadorGrupo(nomes)) ?? undefined,
+          nomes,
+        });
+      }
+    } else if (dto.nomesApostadores?.length) {
+      const nomes = Array.from(
+        new Set(
+          dto.nomesApostadores
+            .map(nome => nome?.trim())
+            .filter((nome): nome is string => !!nome),
+        ),
+      );
+
+      if (nomes.length) {
+        grupos.push({
+          identificador: this.gerarIdentificadorGrupo(nomes) ?? undefined,
+          nomes,
+        });
+      }
+    }
+
+    return grupos;
+  }
+
+  private gerarIdentificadorGrupo(nomes: string[]): string | undefined {
+    if (!nomes.length) {
+      return undefined;
+    }
+
+    const partes = nomes
+      .map(nome =>
+        nome
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, ''),
+      )
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    if (!partes.length) {
+      return undefined;
+    }
+
+    const base = partes.join('__');
+    return base.substring(0, 100);
+  }
+
+  private obterIdentificadorExistente(
+    nomes: string[],
+    existentesPorNome: Map<string, ApostadorCombinado>,
+  ): string | undefined {
+    for (const nome of nomes) {
+      const existente = existentesPorNome.get(this.normalizarNome(nome));
+      if (existente?.grupoIdentificador) {
+        return existente.grupoIdentificador;
+      }
+    }
+
+    return undefined;
+  }
+
+  private agruparCombinados(
+    combinados: ApostadorCombinado[],
+  ): Array<{ grupoIdentificador: string; apostadores: string[] }> {
+    const mapa = new Map<string, Set<string>>();
+
+    for (const combinado of combinados) {
+      const identificador = combinado.grupoIdentificador;
+      if (!mapa.has(identificador)) {
+        mapa.set(identificador, new Set());
+      }
+
+      mapa.get(identificador)!.add(combinado.nomeApostador);
+    }
+
+    return Array.from(mapa.entries()).map(([grupoIdentificador, nomes]) => ({
+      grupoIdentificador,
+      apostadores: Array.from(nomes.values()).sort((a, b) => a.localeCompare(b)),
+    }));
+  }
+
+  private async processarDetalhesGrupo(
+    campeonatoId: number,
+    apostas: Aposta[],
+  ): Promise<{
+    apostadores: Array<{ id: number | null; nome: string; createdAt: Date | null; updatedAt: Date | null }>;
+    apostasPorRodada: Array<{
+      nomeRodada: string;
+      tipoRodada: any;
+      apostas: any[];
+      totalRodada: number;
+      totalRodadaCalculado: boolean;
+    }>;
+    totalApostado: number;
+    totalPremio: number;
+    totalApostas: number;
+    totalRodadas: number;
+    pareosExcluidos: any[];
+  }> {
+    if (!apostas.length) {
+      return {
+        apostadores: [],
+        apostasPorRodada: [],
+        totalApostado: 0,
+        totalPremio: 0,
+        totalApostas: 0,
+        totalRodadas: 0,
+        pareosExcluidos: [],
+      };
+    }
+
+    const apostasPorRodadaMap = new Map<
+      string,
+      {
+        nomeRodada: string;
+        tipoRodada: any;
+        apostas: Aposta[];
+      }
+    >();
+
+    let totalApostado = 0;
+    let totalPremio = 0;
+
+    apostas.forEach(aposta => {
+      const chaveRodada = `${aposta.nomeRodada}-${aposta.tipoRodadaId}`;
+      if (!apostasPorRodadaMap.has(chaveRodada)) {
+        apostasPorRodadaMap.set(chaveRodada, {
+          nomeRodada: aposta.nomeRodada,
+          tipoRodada: aposta.tipoRodada,
+          apostas: [],
+        });
+      }
+
+      const grupoRodada = apostasPorRodadaMap.get(chaveRodada)!;
+
+      grupoRodada.apostas.push(aposta);
+      totalApostado += Number(aposta.valor || 0);
+      totalPremio += Number(aposta.valorPremio || 0);
+    });
+
+    const apostasPorRodada = Array.from(apostasPorRodadaMap.values()).map(rodada => {
+      const apostasFormatadas = rodada.apostas.map(aposta => this.formatarAposta(aposta));
+      const totalRodada = apostasFormatadas.reduce(
+        (sum, aposta) => sum + Number(aposta.valorPremio || 0),
+        0,
+      );
+
+      const tipoRodadaFormatada = rodada.tipoRodada
+        ? {
+            id: rodada.tipoRodada.id,
+            nome: rodada.tipoRodada.nome,
+            createdAt: rodada.tipoRodada.createdAt,
+            updatedAt: rodada.tipoRodada.updatedAt,
+          }
+        : null;
+
+      return {
+        nomeRodada: rodada.nomeRodada,
+        tipoRodada: tipoRodadaFormatada,
+        apostas: apostasFormatadas,
+        totalRodada: Number(totalRodada.toFixed(2)),
+        totalRodadaCalculado: true,
+      };
+    });
+
+    const pareosExcluidos = await this.obterPareosExcluidosDetalhados(campeonatoId, apostas);
+
+    return {
+      apostadores: this.formatarApostadores(apostas),
+      apostasPorRodada,
+      totalApostado: Number(totalApostado.toFixed(2)),
+      totalPremio: Number(totalPremio.toFixed(2)),
+      totalApostas: apostas.length,
+      totalRodadas: apostasPorRodada.length,
+      pareosExcluidos,
+    };
   }
 }
 
