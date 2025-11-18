@@ -7,6 +7,7 @@ import { Campeonato } from '../entities/campeonato.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { PareoExcluido } from '../entities/pareo-excluido.entity';
 import { DefinirApostadoresCombinadosDto, GrupoCombinadoDto } from '../dto/definir-apostadores-combinados.dto';
+import { DescombinarApostadoresDto } from '../dto/descombinar-apostadores.dto';
 
 @Injectable()
 export class ApostadorCombinadoService {
@@ -128,6 +129,87 @@ export class ApostadorCombinadoService {
     });
 
     return this.agruparCombinados(combinados);
+  }
+
+  async descombinarApostadores(
+    campeonatoId: number,
+    payload: DescombinarApostadoresDto,
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
+    const campeonato = await this.campeonatoRepository.findOne({ where: { id: campeonatoId } });
+
+    if (!campeonato) {
+      throw new NotFoundException(`Campeonato ${campeonatoId} não encontrado.`);
+    }
+
+    if (!payload.nomesApostadores?.length && !payload.grupoIdentificador) {
+      throw new BadRequestException(
+        'É necessário informar pelo menos "nomesApostadores" ou "grupoIdentificador" para descombinar.',
+      );
+    }
+
+    const combinadosExistentes = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId },
+    });
+
+    if (combinadosExistentes.length === 0) {
+      return [];
+    }
+
+    let registrosParaRemover: ApostadorCombinado[] = [];
+
+    if (payload.grupoIdentificador) {
+      // Remove todo o grupo
+      const grupoIdentificadorNormalizado = payload.grupoIdentificador.trim();
+      registrosParaRemover = combinadosExistentes.filter(
+        item => this.normalizarNome(item.grupoIdentificador) === this.normalizarNome(grupoIdentificadorNormalizado),
+      );
+
+      if (registrosParaRemover.length === 0) {
+        throw new NotFoundException(
+          `Grupo com identificador "${payload.grupoIdentificador}" não encontrado no campeonato ${campeonatoId}.`,
+        );
+      }
+
+      // Se também foram informados nomes específicos, filtra apenas esses nomes do grupo
+      if (payload.nomesApostadores && payload.nomesApostadores.length > 0) {
+        const nomesNormalizados = new Set(
+          payload.nomesApostadores.map(nome => this.normalizarNome(nome)),
+        );
+        registrosParaRemover = registrosParaRemover.filter(item =>
+          nomesNormalizados.has(this.normalizarNome(item.nomeApostador)),
+        );
+
+        if (registrosParaRemover.length === 0) {
+          throw new NotFoundException(
+            `Nenhum dos apostadores informados foi encontrado no grupo "${payload.grupoIdentificador}".`,
+          );
+        }
+      }
+    } else if (payload.nomesApostadores && payload.nomesApostadores.length > 0) {
+      // Remove apenas os apostadores informados (de qualquer grupo)
+      const nomesNormalizados = new Set(payload.nomesApostadores.map(nome => this.normalizarNome(nome)));
+      registrosParaRemover = combinadosExistentes.filter(item =>
+        nomesNormalizados.has(this.normalizarNome(item.nomeApostador)),
+      );
+
+      if (registrosParaRemover.length === 0) {
+        throw new NotFoundException(
+          `Nenhum dos apostadores informados foi encontrado como combinado no campeonato ${campeonatoId}.`,
+        );
+      }
+    }
+
+    if (registrosParaRemover.length > 0) {
+      await this.apostadorCombinadoRepository.remove(registrosParaRemover);
+    }
+
+    // Retorna os combinados restantes
+    const combinadosRestantes = await this.apostadorCombinadoRepository.find({
+      where: { campeonatoId },
+      order: { grupoIdentificador: 'ASC', nomeApostador: 'ASC' },
+    });
+
+    return this.agruparCombinados(combinadosRestantes);
   }
 
   async listarApostasCombinadas(

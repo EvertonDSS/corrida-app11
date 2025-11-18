@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApostadorCombinadoService } from '../services/apostador-combinado.service';
 import { DefinirApostadoresCombinadosDto } from '../dto/definir-apostadores-combinados.dto';
+import { DescombinarApostadoresDto } from '../dto/descombinar-apostadores.dto';
 
 @ApiTags('apostadores-combinados')
 @Controller('apostadores-combinados')
@@ -157,6 +158,69 @@ export class ApostadorCombinadoController {
   ): Promise<any> {
     const grupoIdentificador = decodeURIComponent(grupoIdentificadorParam).trim();
     return this.apostadorCombinadoService.obterDetalhesGrupo(campeonatoId, grupoIdentificador);
+  }
+
+  @Delete(':campeonatoId')
+  @ApiOperation({
+    summary: 'Descombinar apostadores',
+    description:
+      'Remove a combinação de apostadores. Pode remover um grupo inteiro (usando grupoIdentificador) ou apenas apostadores específicos (usando nomesApostadores).',
+  })
+  @ApiParam({
+    name: 'campeonatoId',
+    description: 'ID do campeonato',
+    example: 11,
+    type: 'integer',
+  })
+  @ApiBody({
+    type: DescombinarApostadoresDto,
+    examples: {
+      removerGrupo: {
+        summary: 'Remover todo um grupo',
+        value: {
+          grupoIdentificador: 'grupo-joias__zeus',
+        },
+      },
+      removerApostadores: {
+        summary: 'Remover apostadores específicos',
+        value: {
+          nomesApostadores: ['Zezinho', 'Zezeca'],
+        },
+      },
+      removerApostadoresDoGrupo: {
+        summary: 'Remover apostadores específicos de um grupo',
+        value: {
+          grupoIdentificador: 'grupo-joias__zeus',
+          nomesApostadores: ['Zeus'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Apostadores descombinados com sucesso. Retorna os grupos combinados restantes.',
+    schema: {
+      example: [
+        {
+          grupoIdentificador: 'grupo-joias',
+          apostadores: ['Grupo Jóias'],
+        },
+      ],
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados inválidos. É necessário informar pelo menos "nomesApostadores" ou "grupoIdentificador".',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Campeonato, grupo ou apostadores não encontrados.',
+  })
+  async descombinarApostadores(
+    @Param('campeonatoId', ParseIntPipe) campeonatoId: number,
+    @Body() body: DescombinarApostadoresDto,
+  ): Promise<Array<{ grupoIdentificador: string; apostadores: string[] }>> {
+    return this.apostadorCombinadoService.descombinarApostadores(campeonatoId, body);
   }
 }
 
