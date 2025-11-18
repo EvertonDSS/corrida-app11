@@ -133,15 +133,18 @@ export class VencedorService {
 
       apostasVencedoras.forEach(aposta => {
         const nomeApostador = aposta.apostador?.nome ?? 'Desconhecido';
-        const valorPremio = Number(aposta.valorPremio ?? 0);
+        // Calcula o valor proporcional baseado na porcentagem do apostador
+        const valorPremioProporcional = Number(aposta.valorPremio ?? 0) * (Number(aposta.porcentagemPremio ?? 0) / 100);
         const acumuladoAtual = valoresPorApostador.get(nomeApostador) ?? 0;
-        valoresPorApostador.set(nomeApostador, acumuladoAtual + valorPremio);
+        valoresPorApostador.set(nomeApostador, acumuladoAtual + valorPremioProporcional);
       });
 
-      const vencedores = Array.from(valoresPorApostador.entries()).map(([nome, valor]) => ({
-        nomeapostador: nome,
-        valorpremio: Number(valor.toFixed(2)),
-      }));
+      const vencedores = Array.from(valoresPorApostador.entries())
+        .map(([nome, valor]) => ({
+          nomeapostador: nome,
+          valorpremio: Number(valor.toFixed(2)),
+        }))
+        .sort((a, b) => a.nomeapostador.localeCompare(b.nomeapostador));
 
       return {
         cavaloId: vencedor.cavaloId,

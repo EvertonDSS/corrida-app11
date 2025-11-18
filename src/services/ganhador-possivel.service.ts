@@ -202,10 +202,12 @@ export class GanhadorPossivelService {
 
         // Converte os mapas em arrays de objetos para cada cavalo
         for (const [nomeCavalo, mapaApostadores] of apostadoresPorCavalo) {
-          const apostadores = Array.from(mapaApostadores.entries()).map(([nomeapostador, valorpremio]) => ({
-            nomeapostador,
-            valorpremio: Number(valorpremio.toFixed(2)),
-          }));
+          const apostadores = Array.from(mapaApostadores.entries())
+            .map(([nomeapostador, valorpremio]) => ({
+              nomeapostador,
+              valorpremio: Number(valorpremio.toFixed(2)),
+            }))
+            .sort((a, b) => a.nomeapostador.localeCompare(b.nomeapostador));
           cavalosComApostadores[nomeCavalo] = apostadores;
         }
 
@@ -245,6 +247,14 @@ export class GanhadorPossivelService {
 
         // Soma os valores de prêmio para cada apostador (proporcional à porcentagemPremio)
         for (const aposta of apostasDoCavalo) {
+          // Se agrupado = false, não soma se o nometiporodada contiver 'final' (case-insensitive)
+          if (!agrupado) {
+            const nomeTipoRodada = tiposRodadaMap.get(aposta.tipoRodadaId) || '';
+            if (nomeTipoRodada.toLowerCase().includes('final')) {
+              continue;
+            }
+          }
+          
           const nomeApostador = aposta.apostador.nome;
           // Calcula o valor proporcional baseado na porcentagem do apostador
           const valorPremioProporcional = Number(aposta.valorPremio) * (Number(aposta.porcentagemPremio) / 100);
@@ -259,10 +269,12 @@ export class GanhadorPossivelService {
 
       // Converte os mapas em arrays de objetos
       for (const [nomeCavalo, mapaApostadores] of apostadoresPorCavalo) {
-        const apostadores = Array.from(mapaApostadores.entries()).map(([nomeapostador, valorpremio]) => ({
-          nomeapostador,
-          valorpremio: Number(valorpremio.toFixed(2)),
-        }));
+        const apostadores = Array.from(mapaApostadores.entries())
+          .map(([nomeapostador, valorpremio]) => ({
+            nomeapostador,
+            valorpremio: Number(valorpremio.toFixed(2)),
+          }))
+          .sort((a, b) => a.nomeapostador.localeCompare(b.nomeapostador));
         cavalosComApostadores[nomeCavalo] = apostadores;
       }
 
