@@ -6,6 +6,7 @@ import { Cavalo } from '../entities/cavalo.entity';
 import { Aposta } from '../entities/aposta.entity';
 import { TipoRodada } from '../entities/tipo-rodada.entity';
 import { Pareo } from '../entities/pareo.entity';
+import { PareoExcluido } from '../entities/pareo-excluido.entity';
 
 @Injectable()
 export class GanhadorPossivelService {
@@ -20,6 +21,8 @@ export class GanhadorPossivelService {
     private readonly tipoRodadaRepository: Repository<TipoRodada>,
     @InjectRepository(Pareo)
     private readonly pareoRepository: Repository<Pareo>,
+    @InjectRepository(PareoExcluido)
+    private readonly pareoExcluidoRepository: Repository<PareoExcluido>,
   ) {}
 
   async definirGanhadoresPossiveis(
@@ -144,6 +147,19 @@ export class GanhadorPossivelService {
       cavalosGanhadoresPossiveis.map(cavalo => [cavalo.id, (cavalo.nome || '').trim()])
     );
 
+    // Busca pareos excluídos do campeonato
+    const pareosExcluidos = await this.pareoExcluidoRepository.find({
+      where: { campeonatoId },
+    });
+
+    // Cria um mapa para verificar rapidamente se um pareo está excluído
+    // Chave: `${tipoRodadaId}-${numeroPareo}`
+    const pareosExcluidosMap = new Map<string, PareoExcluido>();
+    for (const excluido of pareosExcluidos) {
+      const chave = `${excluido.tipoRodadaId}-${excluido.numeroPareo}`;
+      pareosExcluidosMap.set(chave, excluido);
+    }
+
     // Busca todas as apostas do campeonato com pareos e cavalos carregados
     const apostas = await this.apostaRepository
       .createQueryBuilder('aposta')
@@ -188,9 +204,96 @@ export class GanhadorPossivelService {
 
           // Soma os valores de prêmio para cada apostador (proporcional à porcentagemPremio)
           for (const aposta of apostasDoCavalo) {
+            // Verifica se a aposta está em um pareo excluído (mesmo tipoRodadaId e mesmo numeroPareo)
+            const chavePareo = `${aposta.tipoRodadaId}-${aposta.pareo?.numero ?? ''}`;
+            const pareoEstaExcluido = pareosExcluidosMap.has(chavePareo);
+            
+            // Se a aposta está em um pareo excluído, não conta nada
+            if (pareoEstaExcluido) {
+              continue;
+            }
+
+            // Se agrupado = true, não soma se o nomeRodada contiver 'final' (case-insensitive)
+            if (agrupado && aposta.nomeRodada && aposta.nomeRodada.toLowerCase().includes('final')) {
+              continue;
+            }
+
             const nomeApostador = aposta.apostador.nome;
+            
+            // Calcula o valor excluído por nomeRodada (apenas pareos do mesmo tipoRodadaId)
+            const rodadasUnicas = new Set<string>();
+            rodadasUnicas.add(aposta.nomeRodada);
+            
+            let valorExcluidoPorNome = 0;
+            for (const nomeRodada of rodadasUnicas) {
+              // Busca pareos excluídos apenas do mesmo tipoRodadaId
+              const pareosExcluidosTipo = pareosExcluidos.filter(
+                e => e.tipoRodadaId === aposta.tipoRodadaId
+              );
+
+              for (const excluido of pareosExcluidosTipo) {
+                // Busca apostas do pareo excluído nesta rodada específica e do mesmo tipo
+                const apostasPareoExcluido = await this.apostaRepository.find({
+                  where: {
+                    campeonatoId,
+                    tipoRodadaId: excluido.tipoRodadaId,
+                    nomeRodada: nomeRodada,
+                    pareo: { numero: excluido.numeroPareo }
+                  }
+                });
+
+                // Soma o valor das apostas do pareo excluído nesta rodada
+                if (apostasPareoExcluido.length > 0) {
+                  const valorExcluidoPareo = apostasPareoExcluido.reduce(
+                    (sum, a) => sum + Number(a.valor),
+                    0
+                  );
+                  valorExcluidoPorNome += valorExcluidoPareo;
+                }
+              }
+            }
+
+            // Calcula o valor excluído específico deste apostador nesta rodada
+            const pareosExcluidosTipoApostador = pareosExcluidos.filter(
+              e => e.tipoRodadaId === aposta.tipoRodadaId
+            );
+
+            let valorExcluidoApostador = 0;
+            for (const excluido of pareosExcluidosTipoApostador) {
+              // Busca apostas do pareo excluído nesta rodada específica e do mesmo tipo
+              const apostasPareoExcluido = await this.apostaRepository.find({
+                where: {
+                  campeonatoId,
+                  tipoRodadaId: excluido.tipoRodadaId,
+                  nomeRodada: aposta.nomeRodada,
+                  pareo: { numero: excluido.numeroPareo }
+                }
+              });
+
+              // Calcula apenas a proporção deste apostador no pareo excluído
+              if (apostasPareoExcluido.length > 0) {
+                const apostasDoApostadorNoPareoExcluido = apostasPareoExcluido.filter(
+                  a => a.apostadorId === aposta.apostadorId
+                );
+                const valorApostadorNoPareoExcluido = apostasDoApostadorNoPareoExcluido.reduce(
+                  (sum, a) => sum + Number(a.valor),
+                  0
+                );
+                valorExcluidoApostador += valorApostadorNoPareoExcluido;
+              }
+            }
+
+            // Calcula o valorOriginalPremio ajustado (descontando pareos excluídos por nomeRodada)
+            const valorOriginalPremioAjustado = Number(aposta.valorOriginalPremio ?? 0) - valorExcluidoPorNome;
+            
+            // Desconta também o valor excluído específico deste apostador nesta rodada
+            const valorPremioAjustado = valorOriginalPremioAjustado - valorExcluidoApostador;
+            
+            // Aplica a retirada
+            const valorPremioAposRetirada = valorPremioAjustado * (1 - Number(aposta.porcentagemRetirada ?? 0) / 100);
+            
             // Calcula o valor proporcional baseado na porcentagem do apostador
-            const valorPremioProporcional = Number(aposta.valorPremio) * (Number(aposta.porcentagemPremio) / 100);
+            const valorPremioProporcional = valorPremioAposRetirada * (Number(aposta.porcentagemPremio ?? 0) / 100);
             
             if (mapaApostadores.has(nomeApostador)) {
               mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremioProporcional);
@@ -247,6 +350,15 @@ export class GanhadorPossivelService {
 
         // Soma os valores de prêmio para cada apostador (proporcional à porcentagemPremio)
         for (const aposta of apostasDoCavalo) {
+          // Verifica se a aposta está em um pareo excluído (mesmo tipoRodadaId e mesmo numeroPareo)
+          const chavePareo = `${aposta.tipoRodadaId}-${aposta.pareo?.numero ?? ''}`;
+          const pareoEstaExcluido = pareosExcluidosMap.has(chavePareo);
+          
+          // Se a aposta está em um pareo excluído, não conta nada
+          if (pareoEstaExcluido) {
+            continue;
+          }
+
           // Se agrupado = false, não soma se o nometiporodada contiver 'final' (case-insensitive)
           if (!agrupado) {
             const nomeTipoRodada = tiposRodadaMap.get(aposta.tipoRodadaId) || '';
@@ -256,8 +368,81 @@ export class GanhadorPossivelService {
           }
           
           const nomeApostador = aposta.apostador.nome;
+          
+          // Calcula o valor excluído por nomeRodada (apenas pareos do mesmo tipoRodadaId)
+          const rodadasUnicas = new Set<string>();
+          rodadasUnicas.add(aposta.nomeRodada);
+          
+          let valorExcluidoPorNome = 0;
+          for (const nomeRodada of rodadasUnicas) {
+            // Busca pareos excluídos apenas do mesmo tipoRodadaId
+            const pareosExcluidosTipo = pareosExcluidos.filter(
+              e => e.tipoRodadaId === aposta.tipoRodadaId
+            );
+
+            for (const excluido of pareosExcluidosTipo) {
+              // Busca apostas do pareo excluído nesta rodada específica e do mesmo tipo
+              const apostasPareoExcluido = await this.apostaRepository.find({
+                where: {
+                  campeonatoId,
+                  tipoRodadaId: excluido.tipoRodadaId,
+                  nomeRodada: nomeRodada,
+                  pareo: { numero: excluido.numeroPareo }
+                }
+              });
+
+              // Soma o valor das apostas do pareo excluído nesta rodada
+              if (apostasPareoExcluido.length > 0) {
+                const valorExcluidoPareo = apostasPareoExcluido.reduce(
+                  (sum, a) => sum + Number(a.valor),
+                  0
+                );
+                valorExcluidoPorNome += valorExcluidoPareo;
+              }
+            }
+          }
+
+          // Calcula o valor excluído específico deste apostador nesta rodada
+          const pareosExcluidosTipoApostador = pareosExcluidos.filter(
+            e => e.tipoRodadaId === aposta.tipoRodadaId
+          );
+
+          let valorExcluidoApostador = 0;
+          for (const excluido of pareosExcluidosTipoApostador) {
+            // Busca apostas do pareo excluído nesta rodada específica e do mesmo tipo
+            const apostasPareoExcluido = await this.apostaRepository.find({
+              where: {
+                campeonatoId,
+                tipoRodadaId: excluido.tipoRodadaId,
+                nomeRodada: aposta.nomeRodada,
+                pareo: { numero: excluido.numeroPareo }
+              }
+            });
+
+            // Calcula apenas a proporção deste apostador no pareo excluído
+            if (apostasPareoExcluido.length > 0) {
+              const apostasDoApostadorNoPareoExcluido = apostasPareoExcluido.filter(
+                a => a.apostadorId === aposta.apostadorId
+              );
+              const valorApostadorNoPareoExcluido = apostasDoApostadorNoPareoExcluido.reduce(
+                (sum, a) => sum + Number(a.valor),
+                0
+              );
+              valorExcluidoApostador += valorApostadorNoPareoExcluido;
+            }
+          }
+
+          // Calcula o valorOriginalPremio ajustado (descontando pareos excluídos por nomeRodada)
+          const valorOriginalPremioAjustado = Number(aposta.valorOriginalPremio ?? 0) - valorExcluidoPorNome;
+          
+          // Desconta também o valor excluído específico deste apostador nesta rodada
+          const valorPremioAjustado = valorOriginalPremioAjustado - valorExcluidoApostador;
+          
+          // Aplica a retirada
+          const valorPremioAposRetirada = valorPremioAjustado * (1 - Number(aposta.porcentagemRetirada ?? 0) / 100);
+          
           // Calcula o valor proporcional baseado na porcentagem do apostador
-          const valorPremioProporcional = Number(aposta.valorPremio) * (Number(aposta.porcentagemPremio) / 100);
+          const valorPremioProporcional = valorPremioAposRetirada * (Number(aposta.porcentagemPremio ?? 0) / 100);
           
           if (mapaApostadores.has(nomeApostador)) {
             mapaApostadores.set(nomeApostador, mapaApostadores.get(nomeApostador)! + valorPremioProporcional);
